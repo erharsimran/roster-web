@@ -16,7 +16,7 @@ export default function RootPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-neutral-950 flex items-center justify-center font-mono text-xs text-neutral-500">
+    <div className="min-h-screen bg-background flex items-center justify-center font-mono text-xs text-muted-foreground">
       ROUTING WORKSPACE...
     </div>
   );

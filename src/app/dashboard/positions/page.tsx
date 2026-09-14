@@ -147,7 +147,7 @@ export default function PositionsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white">Positions & Pay Rates</h1>
-          <p className="text-xs text-neutral-400 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             Configure job titles, baseline hourly wages, and staff qualifications.
           </p>
         </div>
@@ -179,24 +179,24 @@ export default function PositionsPage() {
       {/* Filter Bar */}
       <div className="flex items-center justify-between gap-4">
         <div className="relative flex-1 max-w-sm">
-          <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-2.5" />
+          <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-2.5" />
           <input
             type="text"
             placeholder="Search roles..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-neutral-200 focus:outline-none focus:border-emerald-500"
+            className="w-full pl-9 pr-3 py-1.5 bg-card border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500"
           />
         </div>
-        <div className="text-xs text-neutral-500 font-mono">
+        <div className="text-xs text-muted-foreground font-mono">
           {filteredPositions.length} OF {positions.length} POSITIONS
         </div>
       </div>
 
       {/* Positions Table */}
-      <div className="border border-neutral-800 rounded-xl overflow-hidden bg-neutral-900/30">
+      <div className="border border-card-border rounded-xl overflow-hidden bg-card/30">
         <table className="w-full text-left text-xs">
-          <thead className="bg-neutral-900/80 border-b border-neutral-800 text-neutral-400 uppercase font-mono text-[10px] tracking-wider">
+          <thead className="bg-card/80 border-b border-card-border text-muted-foreground uppercase font-mono text-[10px] tracking-wider">
             <tr>
               <th className="px-5 py-3">Position Name</th>
               <th className="px-5 py-3">Base Pay Rate</th>
@@ -205,42 +205,42 @@ export default function PositionsPage() {
               <th className="px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-neutral-800">
+          <tbody className="divide-y divide-card-border">
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-neutral-500 font-mono">
+                <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground font-mono">
                   FETCHING POSITIONS CATALOG...
                 </td>
               </tr>
             ) : filteredPositions.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-5 py-8 text-center text-neutral-500">
+                <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
                   No positions found. Click &quot;New Position&quot; to establish your job catalog[cite: 1].
                 </td>
               </tr>
             ) : (
               filteredPositions.map((pos) => (
-                <tr key={pos.id} className="hover:bg-neutral-900/60 transition-colors">
-                  <td className="px-5 py-3.5 font-medium text-neutral-200">
+                <tr key={pos.id} className="hover:bg-card/60 transition-colors">
+                  <td className="px-5 py-3.5 font-medium text-foreground">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-1.5 rounded-lg bg-neutral-800 text-emerald-400">
+                      <div className="p-1.5 rounded-lg bg-muted text-emerald-400">
                         <Briefcase className="w-3.5 h-3.5" />
                       </div>
                       <span>{pos.name}</span>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-neutral-300 font-mono">
+                  <td className="px-5 py-3.5 text-muted-foreground font-mono">
                     {pos.hourlyRate ? `$${Number(pos.hourlyRate).toFixed(2)}/hr` : '—'}
                   </td>
-                  <td className="px-5 py-3.5 text-neutral-400 font-mono">
+                  <td className="px-5 py-3.5 text-muted-foreground font-mono">
                     <div className="flex items-center gap-1.5">
-                      <Users className="w-3 h-3 text-neutral-500" />
+                      <Users className="w-3 h-3 text-muted-foreground" />
                       <span>{pos._count?.employeePositions ?? 0} staff</span>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-neutral-400 font-mono">
+                  <td className="px-5 py-3.5 text-muted-foreground font-mono">
                     <div className="flex items-center gap-1.5">
-                      <CalendarDays className="w-3 h-3 text-neutral-500" />
+                      <CalendarDays className="w-3 h-3 text-muted-foreground" />
                       <span>{pos._count?.shifts ?? 0} shifts</span>
                     </div>
                   </td>
@@ -248,14 +248,14 @@ export default function PositionsPage() {
                     <div className="inline-flex items-center gap-1">
                       <button
                         onClick={() => openEditModal(pos)}
-                        className="p-1.5 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 rounded-md transition-colors"
+                        className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
                         title="Edit Position"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDelete(pos)}
-                        className="p-1.5 text-neutral-400 hover:text-rose-400 hover:bg-neutral-800 rounded-md transition-colors"
+                        className="p-1.5 text-muted-foreground hover:text-rose-400 hover:bg-muted rounded-md transition-colors"
                         title="Delete Position"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -272,24 +272,24 @@ export default function PositionsPage() {
       {/* Modal Dialog */}
       {modalMode && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-card border border-card-border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-white">
                   {modalMode === 'create' ? 'Create Job Position' : `Edit Position: ${activePosition?.name}`}
                 </h2>
-                <p className="text-xs text-neutral-400 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Configure the role label and baseline hourly compensation[cite: 1].
                 </p>
               </div>
-              <button onClick={closeModal} className="text-neutral-500 hover:text-neutral-300">
+              <button onClick={closeModal} className="text-muted-foreground hover:text-muted-foreground">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
                   Position Title <span className="text-rose-400">*</span>
                 </label>
                 <input
@@ -298,16 +298,16 @@ export default function PositionsPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Line Cook, Barista, Shift Lead"
-                  className="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-neutral-200 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1">
+                <label className="block text-xs font-medium text-muted-foreground mb-1">
                   Default Hourly Rate ($)
                 </label>
                 <div className="relative">
-                  <DollarSign className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-2.5" />
+                  <DollarSign className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-2.5" />
                   <input
                     type="number"
                     step="0.01"
@@ -315,16 +315,16 @@ export default function PositionsPage() {
                     value={hourlyRate}
                     onChange={(e) => setHourlyRate(e.target.value)}
                     placeholder="22.50"
-                    className="w-full pl-8 pr-3 py-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-neutral-200 focus:outline-none focus:border-emerald-500"
+                    className="w-full pl-8 pr-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-neutral-800">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-card-border">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 transition-colors"
+                  className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Cancel
                 </button>

@@ -21,7 +21,7 @@ function CallbackHandler() {
   }, [router, searchParams]);
 
   return (
-    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center font-mono text-xs text-neutral-400">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center font-mono text-xs text-muted-foreground">
       <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-3" />
       FINALIZING AUTHENTICATION...
     </div>
@@ -31,7 +31,7 @@ function CallbackHandler() {
 export default function AuthCallbackPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-neutral-950 flex items-center justify-center font-mono text-xs text-neutral-400">
+      <div className="min-h-screen bg-background flex items-center justify-center font-mono text-xs text-muted-foreground">
         LOADING SESSION...
       </div>
     }>
