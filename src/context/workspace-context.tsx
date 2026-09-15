@@ -1,47 +1,100 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiClient } from '../lib/api-client';
-import type { UserProfile, LocationSummary } from '@/types';
+import { apiClient } from '@/lib/api-client';
+import { locationService, LocationItem } from '@/services/location.service';
 
-interface WorkspaceContextType {
-  user: UserProfile | null;
-  selectedLocation: LocationSummary | null;
-  setSelectedLocation: (location: LocationSummary) => void;
-  isLoading: boolean;
-  logout: () => void;
-  refreshProfile: () => Promise<void>;
+export interface WorkspaceUser {
+  id: string;
+  email: string;
+  fullName: string;
+  role: string;
+  orgId: string;
+  organization?: {
+    id: string;
+    name: string;
+    timezone: string;
+  } | null;
+  permissions: string[];
+  locations: LocationItem[];
 }
 
-const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
+interface WorkspaceContextValue {
+  user: WorkspaceUser | null;
+  selectedLocation: LocationItem | null;
+  setSelectedLocation: (location: LocationItem) => void;
+  refreshLocations: () => Promise<void>;
+  isLoading: boolean;
+  logout: () => void;
+}
+
+const WorkspaceContext = createContext<WorkspaceContextValue | undefined>(undefined);
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [selectedLocation, setSelectedLocation] = useState<LocationSummary | null>(null);
+  const [user, setUser] = useState<WorkspaceUser | null>(null);
+  const [selectedLocation, setSelectedLocationState] = useState<LocationItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchProfile = async () => {
+  const setSelectedLocation = (location: LocationItem) => {
+    setSelectedLocationState(location);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('roster_selected_location_id', location.id);
+    }
+  };
+
+  const refreshLocations = useCallback(async () => {
+    if (!user?.orgId) return;
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-      if (!token) {
-        setIsLoading(false);
-        router.replace('/login');
-        return;
+      const locations = await locationService.listByOrg(user.orgId);
+      setUser((prev) => (prev ? { ...prev, locations } : prev));
+
+      setSelectedLocationState((currentSelected) => {
+        const savedLocationId = typeof window !== 'undefined' 
+          ? localStorage.getItem('roster_selected_location_id') 
+          : null;
+
+        if (currentSelected && locations.some((l) => l.id === currentSelected.id)) {
+          return locations.find((l) => l.id === currentSelected.id) || currentSelected;
+        }
+        if (savedLocationId && locations.some((l) => l.id === savedLocationId)) {
+          return locations.find((l) => l.id === savedLocationId) || locations[0];
+        }
+        return locations[0] || null;
+      });
+    } catch (error) {
+      console.error('Failed to reload organization locations:', error);
+    }
+  }, [user?.orgId]);
+
+  const loadProfile = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const { data: profile } = await apiClient.get<WorkspaceUser>('/auth/me');
+
+      let userLocations: LocationItem[] = [];
+      if (profile.orgId) {
+        userLocations = await locationService.listByOrg(profile.orgId);
       }
 
-      const response = await apiClient.get<UserProfile>('/auth/me');
-      const profile = response.data;
-      setUser(profile);
+      const completeUser: WorkspaceUser = {
+        ...profile,
+        locations: userLocations,
+      };
 
-      const availableLocations = profile.locations || [];
-      if (availableLocations.length > 0) {
-        const storedLocId = localStorage.getItem('active_location_id');
-        const active = availableLocations.find((l) => l.id === storedLocId) || availableLocations[0];
-        setSelectedLocation(active);
-      }
-    } catch {
+      setUser(completeUser);
+
+      const savedLocationId = typeof window !== 'undefined' 
+        ? localStorage.getItem('roster_selected_location_id') 
+        : null;
+
+      const initialLocation =
+        userLocations.find((l) => l.id === savedLocationId) || userLocations[0] || null;
+
+      setSelectedLocationState(initialLocation);
+    } catch (error) {
+      console.error('Failed to load workspace session:', error);
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
       }
@@ -49,25 +102,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [router]);
 
   useEffect(() => {
-    fetchProfile();
-  }, []);
-
-  const handleLocationChange = (location: LocationSummary) => {
-    setSelectedLocation(location);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('active_location_id', location.id);
-    }
-  };
+    loadProfile();
+  }, [loadProfile]);
 
   const logout = () => {
     if (typeof window !== 'undefined') {
-      localStorage.clear();
+      localStorage.removeItem('token');
+      localStorage.removeItem('roster_selected_location_id');
     }
     setUser(null);
-    setSelectedLocation(null);
+    setSelectedLocationState(null);
     router.replace('/login');
   };
 
@@ -76,10 +123,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         selectedLocation,
-        setSelectedLocation: handleLocationChange,
+        setSelectedLocation,
+        refreshLocations,
         isLoading,
         logout,
-        refreshProfile: fetchProfile,
       }}
     >
       {children}

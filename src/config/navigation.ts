@@ -10,6 +10,7 @@ import {
     ShieldAlert,
     Settings,
     Building2,
+    MapPin,
     LucideIcon,
 } from 'lucide-react';
 
@@ -80,6 +81,13 @@ export const MAIN_NAVIGATION: NavItem[] = [
 ];
 
 export const SETTINGS_NAVIGATION: NavItem[] = [
+    {
+        title: 'Store Locations',
+        href: '/dashboard/locations',
+        icon: Building2,
+        requiredPermissions: ['locations:manage'],
+        allowedRoles: ['Owner', 'Admin'],
+    },
     {
         title: 'Organization Roles',
         href: '/dashboard/organization/roles',
