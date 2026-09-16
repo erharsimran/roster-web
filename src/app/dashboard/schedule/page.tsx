@@ -20,20 +20,13 @@ import {
   Trash2,
   X,
   CalendarOff,
+  DoorClosed,
 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
 /* Constants & pure helpers                                            */
 /* ------------------------------------------------------------------ */
 
-/**
- * Position color palette.
- * IMPORTANT: every entry now carries a LIGHT-mode value plus a `dark:`
- * override, instead of a single fixed shade. The old palette used
- * *-300 text on a *-500/20 background, which only has enough contrast
- * against a near-black page - on a white/light page those same text
- * colors nearly disappear. Each entry below is legible in both themes.
- */
 const POSITION_PALETTES: Record<string, { bg: string; border: string; text: string }> = {
   Server: { bg: 'bg-rose-100 dark:bg-rose-500/20', border: 'border-rose-300 dark:border-rose-500/50', text: 'text-rose-700 dark:text-rose-300' },
   'Assistant manager': { bg: 'bg-emerald-100 dark:bg-emerald-500/20', border: 'border-emerald-300 dark:border-emerald-500/50', text: 'text-emerald-700 dark:text-emerald-300' },
@@ -48,13 +41,87 @@ const POSITION_PALETTES: Record<string, { bg: string; border: string; text: stri
 
 const MIN_SHIFT_MINUTES = 30;
 const WEEKLY_OVERTIME_THRESHOLD_HOURS = 40;
-const RESIZE_SNAP_MINUTES = 15;
-const TIMELINE_START_HOUR = 6;
-const TIMELINE_END_HOUR = 24;
 const DEFAULT_HOUR_WIDTH = 80;
 const MIN_HOUR_WIDTH = 50;
 const MAX_HOUR_WIDTH = 140;
 const TIMELINE_SNAP_MINUTES = 15;
+
+const DAY_KEYS = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+] as const;
+
+interface DayOperatingSchedule {
+  isOpen: boolean;
+  open: string;
+  close: string;
+}
+
+function normalizeTime(value: unknown, fallback = '00:00'): string {
+  if (typeof value !== 'string') return fallback;
+
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return fallback;
+
+  const hours = Math.max(0, Math.min(23, Number(match[1])));
+  const minutes = Math.max(0, Math.min(59, Number(match[2])));
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function timeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
+}
+
+function minutesToTime(totalMinutes: number): string {
+  const normalized = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(normalized / 60) % 24;
+  const minutes = normalized % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function getOperatingHoursForDate(
+  date: Date,
+  operatingHours?: Record<string, any> | null
+): DayOperatingSchedule | null {
+  if (!operatingHours || typeof operatingHours !== 'object') return null;
+
+  const dayKey = DAY_KEYS[date.getDay()];
+  const sched = operatingHours[dayKey];
+  if (!sched || typeof sched !== 'object') return null;
+
+  const isOpen = Boolean(sched.isOpen ?? sched.opened ?? sched.enabled ?? true);
+
+  const open =
+    sched.open ??
+    sched.openTime ??
+    sched.open_time ??
+    sched.start ??
+    sched.startTime;
+
+  const close =
+    sched.close ??
+    sched.closeTime ??
+    sched.close_time ??
+    sched.end ??
+    sched.endTime;
+
+  // Never invent an operating window when the store is marked open but
+  // the actual opening/closing times are missing.
+  if (isOpen && (!open || !close)) return null;
+
+  return {
+    isOpen,
+    open: normalizeTime(open),
+    close: normalizeTime(close),
+  };
+}
 
 function getMonday(date: Date): Date {
   const d = new Date(date);
@@ -72,9 +139,6 @@ function formatDateIso(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-/** Compares by local calendar date, not by slicing the ISO string
- * (slicing breaks for any user not in UTC, since an ISO timestamp's
- * date component can be a day off from the viewer's local day). */
 function isSameLocalDate(isoString: string, date: Date): boolean {
   const d = new Date(isoString);
   return (
@@ -100,9 +164,6 @@ function formatDurationHoursMinutes(durationHours: number): string {
   return `${h}h ${m}min`;
 }
 
-/** Builds a Date from a calendar day + "HH:mm" in the viewer's local
- * timezone. Replaces the old pattern of appending "Z" to a local time
- * string, which silently misread every non-UTC user's clock. */
 function combineDateAndTime(dateIso: string, time: string): Date {
   return new Date(`${dateIso}T${time}:00`);
 }
@@ -111,15 +172,45 @@ function rangesOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): bool
   return aStart.getTime() < bEnd.getTime() && bStart.getTime() < aEnd.getTime();
 }
 
+function getShiftBoundaryViolation(
+  dateIso: string,
+  start: Date,
+  end: Date,
+  schedule: DayOperatingSchedule | null
+): string | null {
+  if (!schedule) return null;
+  if (!schedule.isOpen) {
+    const dayName = new Date(`${dateIso}T00:00:00`).toLocaleDateString('en-US', { weekday: 'long' });
+    return `Store is closed on ${dayName}.`;
+  }
+
+  const openTime = combineDateAndTime(dateIso, schedule.open);
+  let closeTime = combineDateAndTime(dateIso, schedule.close);
+
+  if (closeTime.getTime() <= openTime.getTime()) {
+    closeTime = new Date(closeTime.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  if (start.getTime() < openTime.getTime()) {
+    return `Shift cannot start before store opens (${schedule.open}).`;
+  }
+
+  if (end.getTime() > closeTime.getTime()) {
+    return `Shift cannot end after store closes (${schedule.close}).`;
+  }
+
+  return null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Local types                                                         */
 /* ------------------------------------------------------------------ */
 
 interface AvailabilityWindow {
   userId: string;
-  date: string; // yyyy-mm-dd, local
+  date: string;
   allDay: boolean;
-  startTime?: string; // "HH:mm", local
+  startTime?: string;
   endTime?: string;
   reason?: string;
 }
@@ -136,12 +227,6 @@ interface PendingDelete {
   label: string;
 }
 
-/** Neither employee.service nor position.service currently export a
- * type for what their list endpoints return (both come back as
- * effectively `any`), so these are defined locally with only the
- * fields this component actually touches. If you add proper response
- * DTOs to those services (recommended), import those instead of
- * these local shapes. */
 interface RosterEmployee {
   id: string;
   [key: string]: unknown;
@@ -326,6 +411,7 @@ function QuickCreateModal({
   initialStart,
   initialEnd,
   initialPositionId,
+  operatingSchedule,
   positions,
   submitting,
   onClose,
@@ -336,21 +422,25 @@ function QuickCreateModal({
   initialStart?: string;
   initialEnd?: string;
   initialPositionId?: string;
+  operatingSchedule?: DayOperatingSchedule | null;
   positions: RosterPosition[];
   submitting: boolean;
   onClose: () => void;
   onSubmit: (input: { positionId: string; start: string; end: string; overnight: boolean }) => Promise<void> | void;
 }) {
-  const [startInput, setStartInput] = useState(initialStart || '10:00');
-  const [endInput, setEndInput] = useState(initialEnd || '17:00');
+  const defaultStart = initialStart || operatingSchedule?.open || '09:00';
+  const defaultEnd = initialEnd || operatingSchedule?.close || '17:00';
+
+  const [startInput, setStartInput] = useState(defaultStart);
+  const [endInput, setEndInput] = useState(defaultEnd);
   const [overnight, setOvernight] = useState(false);
   const [positionInput, setPositionInput] = useState(initialPositionId || positions[0]?.id || '');
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialPositionId) setPositionInput(initialPositionId);
     else if (!positionInput && positions[0]?.id) setPositionInput(positions[0].id);
   }, [initialPositionId, positions, positionInput]);
-  const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -360,8 +450,6 @@ function QuickCreateModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Auto-suggest "ends next day" the moment the end time is not after the
-  // start time, instead of silently producing a negative-duration shift.
   useEffect(() => {
     setOvernight(endInput <= startInput);
   }, [startInput, endInput]);
@@ -372,10 +460,23 @@ function QuickCreateModal({
       setValidationError('Choose a position.');
       return;
     }
+
+    if (operatingSchedule?.isOpen) {
+      if (startInput < operatingSchedule.open) {
+        setValidationError(`Shift cannot start before store opens (${operatingSchedule.open}).`);
+        return;
+      }
+      if (!overnight && endInput > operatingSchedule.close) {
+        setValidationError(`Shift cannot end after store closes (${operatingSchedule.close}).`);
+        return;
+      }
+    }
+
     if (!overnight && endInput <= startInput) {
       setValidationError('End time must be after start time (or mark it overnight).');
       return;
     }
+
     setValidationError(null);
     await onSubmit({ positionId: positionInput, start: startInput, end: endInput, overnight });
   };
@@ -388,10 +489,17 @@ function QuickCreateModal({
         aria-labelledby="quick-create-title"
         className="bg-card border border-card-border rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4"
       >
-        <div className="flex items-center justify-between">
-          <h3 id="quick-create-title" className="text-sm font-bold text-foreground">
-            {employeeName ? `Schedule ${employeeName}` : 'Create Shift'} ({dateIso})
-          </h3>
+        <div className="flex items-center justify-between border-b border-card-border pb-2.5">
+          <div>
+            <h3 id="quick-create-title" className="text-sm font-bold text-foreground">
+              {employeeName ? `Schedule ${employeeName}` : 'Create Shift'} ({dateIso})
+            </h3>
+            {operatingSchedule?.isOpen && (
+              <p className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400 mt-0.5">
+                Store Operating Window: {operatingSchedule.open} – {operatingSchedule.close}
+              </p>
+            )}
+          </div>
           <button onClick={onClose} aria-label="Close" className="text-muted-foreground hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
@@ -429,6 +537,8 @@ function QuickCreateModal({
                 id="qc-start"
                 type="time"
                 required
+                min={operatingSchedule?.isOpen ? operatingSchedule.open : undefined}
+                max={operatingSchedule?.isOpen ? operatingSchedule.close : undefined}
                 value={startInput}
                 onChange={(e) => setStartInput(e.target.value)}
                 className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground"
@@ -442,6 +552,8 @@ function QuickCreateModal({
                 id="qc-end"
                 type="time"
                 required
+                min={operatingSchedule?.isOpen ? operatingSchedule.open : undefined}
+                max={operatingSchedule?.isOpen ? operatingSchedule.close : undefined}
                 value={endInput}
                 onChange={(e) => setEndInput(e.target.value)}
                 className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground"
@@ -461,7 +573,7 @@ function QuickCreateModal({
 
           {validationError && <p className="text-[11px] text-rose-600 dark:text-rose-400">{validationError}</p>}
 
-          <div className="flex items-center justify-end gap-2 pt-2">
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-card-border">
             <button type="button" onClick={onClose} className="px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
               Cancel
             </button>
@@ -479,9 +591,8 @@ function QuickCreateModal({
   );
 }
 
-
 /* ------------------------------------------------------------------ */
-/* Day timeline                                                        */
+/* Day timeline (Operating-Hours Bounded)                              */
 /* ------------------------------------------------------------------ */
 
 function DayTimeline({
@@ -491,6 +602,10 @@ function DayTimeline({
   availability,
   resizeGesture,
   hourWidth,
+  timelineStartHour,
+  timelineEndHour,
+  isStoreClosed,
+  operatingSchedule,
   dragOverRow,
   onDragOver,
   onDragLeave,
@@ -508,6 +623,10 @@ function DayTimeline({
   availability: AvailabilityWindow[];
   resizeGesture: ResizeGesture | null;
   hourWidth: number;
+  timelineStartHour: number;
+  timelineEndHour: number;
+  isStoreClosed: boolean;
+  operatingSchedule: DayOperatingSchedule | null;
   dragOverRow: string | null;
   onDragOver: (e: React.DragEvent, userId: string) => void;
   onDragLeave: (e: React.DragEvent) => void;
@@ -524,18 +643,51 @@ function DayTimeline({
   onEmptyClick: (e: React.MouseEvent, userId: string, dateIso: string) => void;
 }) {
   const dateIso = formatDateIso(day);
-  const timelineWidth = (TIMELINE_END_HOUR - TIMELINE_START_HOUR) * hourWidth;
+  const timelineWidth = Math.max(1, (timelineEndHour - timelineStartHour) * hourWidth);
 
-  const hours = useMemo(
-    () => Array.from({ length: TIMELINE_END_HOUR - TIMELINE_START_HOUR }, (_, i) => TIMELINE_START_HOUR + i),
-    []
-  );
+  const timelineStartMinutes = Math.round(timelineStartHour * 60);
+  const timelineEndMinutes = Math.round(timelineEndHour * 60);
+
+  const timelineTicks = useMemo(() => {
+    if (timelineEndMinutes <= timelineStartMinutes) return [];
+
+    const ticks: number[] = [timelineStartMinutes];
+    const firstWholeHour = Math.ceil(timelineStartMinutes / 60) * 60;
+
+    for (let minutes = firstWholeHour; minutes < timelineEndMinutes; minutes += 60) {
+      if (minutes !== timelineStartMinutes) ticks.push(minutes);
+    }
+
+    return ticks;
+  }, [timelineStartMinutes, timelineEndMinutes]);
+
+  const halfHourTicks = useMemo(() => {
+    if (timelineEndMinutes <= timelineStartMinutes) return [];
+
+    const ticks: number[] = [];
+    const firstHalfHour = Math.ceil(timelineStartMinutes / 30) * 30;
+
+    for (let minutes = firstHalfHour; minutes < timelineEndMinutes; minutes += 30) {
+      if (minutes !== timelineStartMinutes) ticks.push(minutes);
+    }
+
+    return ticks;
+  }, [timelineStartMinutes, timelineEndMinutes]);
 
   const employeesById = useMemo(() => new Map(employees.map((employee) => [employee.id, employee])), [employees]);
 
+  if (isStoreClosed) {
+    return (
+      <div className="border border-card-border rounded-xl p-16 text-center text-xs font-mono text-muted-foreground bg-background flex flex-col items-center justify-center gap-2">
+        <DoorClosed className="w-8 h-8 text-muted-foreground/40" />
+        <span className="font-bold text-foreground">Store is Closed</span>
+        <span>No operating hours configured for {day.toLocaleDateString('en-US', { weekday: 'long' })}.</span>
+      </div>
+    );
+  }
+
   return (
     <div className="border border-card-border rounded-xl overflow-hidden bg-background shadow-lg">
-      {/* Timeline header */}
       <div className="flex bg-card border-b border-card-border sticky top-0 z-20">
         <div className="sticky left-0 z-30 w-[230px] min-w-[230px] shrink-0 p-3 border-r border-card-border bg-card text-muted-foreground uppercase text-[10px] tracking-wider font-bold flex items-center justify-between">
           <span>EMPLOYEES</span>
@@ -543,18 +695,20 @@ function DayTimeline({
         </div>
 
         <div className="relative h-12 shrink-0" style={{ width: timelineWidth }}>
-          {hours.map((hour) => {
+          {timelineTicks.map((minutesFromMidnight) => {
             const tick = new Date(day);
-            tick.setHours(hour, 0, 0, 0);
-            const isNoon = hour === 12;
+            tick.setHours(0, 0, 0, 0);
+            tick.setTime(tick.getTime() + minutesFromMidnight * 60 * 1000);
+
+            const offsetMinutes = minutesFromMidnight - timelineStartMinutes;
+            const isNoon = minutesFromMidnight % (24 * 60) === 12 * 60;
 
             return (
               <div
-                key={hour}
+                key={`tick-${minutesFromMidnight}`}
                 className="absolute inset-y-0 border-r border-card-border flex items-center px-2 text-[10px] font-mono"
                 style={{
-                  left: (hour - TIMELINE_START_HOUR) * hourWidth,
-                  width: hourWidth,
+                  left: (offsetMinutes / 60) * hourWidth,
                 }}
               >
                 <span className={isNoon ? 'text-foreground font-bold' : 'text-muted-foreground'}>
@@ -566,7 +720,6 @@ function DayTimeline({
         </div>
       </div>
 
-      {/* Employee rows */}
       <div className="divide-y divide-card-border">
         {rows.map((row) => {
           const dayShifts = row.shifts
@@ -582,7 +735,6 @@ function DayTimeline({
 
           return (
             <div key={row.id} className="flex min-h-[78px] hover:bg-muted/40 transition-colors">
-              {/* Employee sidebar / drag source */}
               <div
                 draggable={!!employeesById.get(row.id)}
                 onDragStart={(e) => {
@@ -590,7 +742,7 @@ function DayTimeline({
                   if (employee) onEmployeeDragStart(e, employee);
                 }}
                 onDragEnd={onEmployeeDragEnd}
-                title="Drag employee onto the timeline to add a shift"
+                title="Drag employee onto the timeline to schedule"
                 className="sticky left-0 z-20 w-[230px] min-w-[230px] shrink-0 px-3 py-2 border-r border-card-border bg-card flex items-center gap-3 cursor-grab active:cursor-grabbing hover:bg-muted group/employee"
               >
                 <div className="w-8 h-8 rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700 dark:bg-emerald-950/80 dark:border-emerald-700/60 dark:text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
@@ -605,7 +757,6 @@ function DayTimeline({
                 <div className="opacity-0 group-hover/employee:opacity-100 text-[9px] text-muted-foreground uppercase tracking-wide transition-opacity">Drag</div>
               </div>
 
-              {/* Timeline */}
               <div
                 className={`relative h-[78px] shrink-0 transition-colors cursor-crosshair ${
                   isDragOver ? 'bg-emerald-500/10 ring-1 ring-inset ring-emerald-500/50' : ''
@@ -624,27 +775,26 @@ function DayTimeline({
                   </div>
                 )}
 
-                {/* Hour lines */}
-                {hours.map((hour) => (
+                {timelineTicks.map((minutesFromMidnight) => (
                   <div
-                    key={hour}
+                    key={`grid-${minutesFromMidnight}`}
                     className="absolute top-0 bottom-0 border-r border-card-border pointer-events-none"
-                    style={{ left: (hour - TIMELINE_START_HOUR) * hourWidth }}
-                  />
-                ))}
-
-                {/* Half-hour lines */}
-                {hours.map((hour) => (
-                  <div
-                    key={`${hour}-30`}
-                    className="absolute top-0 bottom-0 border-r border-card-border/50 pointer-events-none"
                     style={{
-                      left: (hour - TIMELINE_START_HOUR + 0.5) * hourWidth,
+                      left: ((minutesFromMidnight - timelineStartMinutes) / 60) * hourWidth,
                     }}
                   />
                 ))}
 
-                {/* Availability */}
+                {halfHourTicks.map((minutesFromMidnight) => (
+                  <div
+                    key={`grid-half-${minutesFromMidnight}`}
+                    className="absolute top-0 bottom-0 border-r border-card-border/50 pointer-events-none"
+                    style={{
+                      left: ((minutesFromMidnight - timelineStartMinutes) / 60) * hourWidth,
+                    }}
+                  />
+                ))}
+
                 {userUnavail && (
                   <div
                     className="absolute top-0 bottom-0 bg-muted/70 border-y border-dashed border-card-border pointer-events-none z-[1]"
@@ -657,17 +807,16 @@ function DayTimeline({
                   </div>
                 )}
 
-                {/* Drop indicator */}
                 {isDragOver && (
                   <div className="absolute inset-y-0 left-0 right-0 border-2 border-dashed border-emerald-500/50 rounded pointer-events-none z-[2]" />
                 )}
 
-                {/* Shifts */}
                 {dayShifts.length === 0 && !isDragOver && (
                   <div className="absolute inset-y-0 left-3 flex items-center text-[9px] text-muted-foreground/50 pointer-events-none">
-                    Click a time or drag this employee here
+                    Click a time or drag this employee here ({operatingSchedule?.open}–{operatingSchedule?.close})
                   </div>
                 )}
+
                 {dayShifts.map((shift) => {
                   const resizing = resizeGesture?.shiftId === shift.id;
                   const effectiveStart = resizing
@@ -683,6 +832,8 @@ function DayTimeline({
                       shift={shift}
                       day={day}
                       hourWidth={hourWidth}
+                      timelineStartHour={timelineStartHour}
+                      timelineEndHour={timelineEndHour}
                       effectiveStart={effectiveStart}
                       effectiveEnd={effectiveEnd}
                       isResizing={!!resizeGesture}
@@ -692,7 +843,6 @@ function DayTimeline({
                     />
                   );
                 })}
-
               </div>
             </div>
           );
@@ -706,6 +856,8 @@ function TimelineShiftBlock({
   shift,
   day,
   hourWidth,
+  timelineStartHour,
+  timelineEndHour,
   effectiveStart,
   effectiveEnd,
   isResizing,
@@ -716,6 +868,8 @@ function TimelineShiftBlock({
   shift: ShiftCardData;
   day: Date;
   hourWidth: number;
+  timelineStartHour: number;
+  timelineEndHour: number;
   effectiveStart: Date;
   effectiveEnd: Date;
   isResizing: boolean;
@@ -727,10 +881,12 @@ function TimelineShiftBlock({
   const palette = POSITION_PALETTES[posName] || POSITION_PALETTES.default;
 
   const dayStart = new Date(day);
-  dayStart.setHours(TIMELINE_START_HOUR, 0, 0, 0);
+  dayStart.setHours(0, 0, 0, 0);
+  dayStart.setTime(dayStart.getTime() + Math.round(timelineStartHour * 60) * 60 * 1000);
 
   const dayEnd = new Date(day);
-  dayEnd.setHours(TIMELINE_END_HOUR, 0, 0, 0);
+  dayEnd.setHours(0, 0, 0, 0);
+  dayEnd.setTime(dayEnd.getTime() + Math.round(timelineEndHour * 60) * 60 * 1000);
 
   const visibleStart = effectiveStart < dayStart ? dayStart : effectiveStart;
   const visibleEnd = effectiveEnd > dayEnd ? dayEnd : effectiveEnd;
@@ -756,7 +912,6 @@ function TimelineShiftBlock({
       className={`absolute top-2 bottom-2 rounded-lg border shadow-sm group/timeline-shift cursor-grab active:cursor-grabbing overflow-hidden z-[5] transition-shadow ${palette.bg} ${palette.border} ${palette.text}`}
       style={{ left, width }}
     >
-      {/* Start resize handle */}
       <div
         onMouseDown={(e) => onResizeStart(e, shift, 'start')}
         className="absolute inset-y-0 left-0 w-2.5 cursor-ew-resize hover:bg-foreground/10 rounded-l-lg z-20"
@@ -793,7 +948,6 @@ function TimelineShiftBlock({
         )}
       </div>
 
-      {/* End resize handle */}
       <div
         onMouseDown={(e) => onResizeStart(e, shift, 'end')}
         className="absolute inset-y-0 right-0 w-2.5 cursor-ew-resize hover:bg-foreground/10 rounded-r-lg z-20"
@@ -815,7 +969,7 @@ export default function SlingScheduleCanvas() {
 
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => getMonday(new Date()));
   const [selectedDay, setSelectedDay] = useState<Date>(() => new Date());
-  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('week');
   const [hourWidth, setHourWidth] = useState(DEFAULT_HOUR_WIDTH);
   const [dragOverRow, setDragOverRow] = useState<string | null>(null);
   const [draggedEmployeeId, setDraggedEmployeeId] = useState<string | null>(null);
@@ -826,16 +980,8 @@ export default function SlingScheduleCanvas() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
-  // NOTE: staffList was fetched in the original component but never
-  // actually used anywhere in the render — kept here since a future
-  // "filter by employee" control will likely need it, but flagging so
-  // it doesn't quietly rot as dead state.
   const [staffList, setStaffList] = useState<RosterEmployee[]>([]);
   const [positionsList, setPositionsList] = useState<RosterPosition[]>([]);
-
-  // Availability is intentionally NOT mocked. Until an availability
-  // endpoint exists this stays empty rather than showing fabricated
-  // blackout windows as if they were real employee-submitted data.
   const [availability, setAvailability] = useState<AvailabilityWindow[]>([]);
 
   const [draggedShiftId, setDraggedShiftId] = useState<string | null>(null);
@@ -866,6 +1012,33 @@ export default function SlingScheduleCanvas() {
 
   const startDateIso = formatDateIso(weekDays[0]) + 'T00:00:00Z';
   const endDateIso = formatDateIso(weekDays[6]) + 'T23:59:59Z';
+
+  const activeDayOperatingSchedule = useMemo(() => {
+    return getOperatingHoursForDate(
+      selectedDay,
+      (gridData?.metadata?.operatingHours || selectedLocation?.operatingHours) as any
+    );
+  }, [selectedDay, gridData?.metadata?.operatingHours, selectedLocation?.operatingHours]);
+
+  const { timelineStartHour, timelineEndHour } = useMemo(() => {
+    if (!activeDayOperatingSchedule?.isOpen) {
+      return { timelineStartHour: 0, timelineEndHour: 0 };
+    }
+
+    const openMinutes = timeToMinutes(activeDayOperatingSchedule.open);
+    let closeMinutes = timeToMinutes(activeDayOperatingSchedule.close);
+
+    // Support overnight operating windows such as 18:00–02:00.
+    if (closeMinutes <= openMinutes) {
+      closeMinutes += 24 * 60;
+    }
+
+    return {
+      // Decimal hours preserve exact minute boundaries, e.g. 06:30 = 6.5.
+      timelineStartHour: openMinutes / 60,
+      timelineEndHour: closeMinutes / 60,
+    };
+  }, [activeDayOperatingSchedule]);
 
   const loadGrid = useCallback(async () => {
     if (!locationId) return;
@@ -904,7 +1077,6 @@ export default function SlingScheduleCanvas() {
     loadCatalogs();
   }, [loadCatalogs]);
 
-  // Auto-dismiss the success toast rather than leaving it on screen forever.
   useEffect(() => {
     if (!successMessage) return;
     const t = setTimeout(() => setSuccessMessage(null), 4000);
@@ -912,12 +1084,8 @@ export default function SlingScheduleCanvas() {
   }, [successMessage]);
 
   const allShifts = useMemo(() => gridData?.rows.flatMap((r) => r.shifts) ?? [], [gridData?.rows]);
-
   const findShift = useCallback((shiftId: string) => allShifts.find((s) => s.id === shiftId), [allShifts]);
 
-  // Always render the full roster, even when an employee has no shifts in the
-  // returned schedule payload. This makes the day board a true planning
-  // surface rather than a list of only currently scheduled people.
   const scheduleRows = useMemo(() => {
     const apiRows = gridData?.rows ?? [];
     const byId = new Map(apiRows.map((row) => [row.id, row]));
@@ -938,9 +1106,6 @@ export default function SlingScheduleCanvas() {
     return new Map(staffList.map((employee) => [employee.id, employee]));
   }, [staffList]);
 
-  /** Client-side overlap check so we can reject an obviously-bad move
-   * instantly, instead of round-tripping to the server every time. The
-   * backend remains the source of truth and can still reject it too. */
   const wouldConflict = useCallback(
     (userId: string, start: Date, end: Date, ignoreShiftId: string) => {
       const userShifts = scheduleRows.find((r) => r.id === userId)?.shifts ?? [];
@@ -951,7 +1116,7 @@ export default function SlingScheduleCanvas() {
     [scheduleRows]
   );
 
-  /* ---------------- Drag & drop between cells ---------------- */
+  /* ---------------- Drag & drop between cells (Week Matrix) ---------------- */
 
   const handleDragStart = (e: React.DragEvent, shiftId: string) => {
     setDraggedShiftId(shiftId);
@@ -977,7 +1142,17 @@ export default function SlingScheduleCanvas() {
     newStart.setHours(oldStart.getHours(), oldStart.getMinutes(), 0, 0);
     const newEnd = new Date(newStart.getTime() + durationMs);
 
-    // No-op drop back into the same slot — skip the network round trip.
+    const targetDaySched = getOperatingHoursForDate(
+      new Date(`${targetDateIso}T00:00:00`),
+      (gridData?.metadata?.operatingHours || selectedLocation?.operatingHours) as any
+    );
+
+    const boundaryError = getShiftBoundaryViolation(targetDateIso, newStart, newEnd, targetDaySched);
+    if (boundaryError) {
+      setErrorMessage(boundaryError);
+      return;
+    }
+
     if (currentShift.assignedUser?.id === targetUserId && newStart.getTime() === oldStart.getTime()) {
       return;
     }
@@ -1000,11 +1175,7 @@ export default function SlingScheduleCanvas() {
     }
   };
 
-  /* ---------------- Edge resize ---------------- */
-  // Listeners are attached once per drag gesture (on mousedown) and torn
-  // down on mouseup, instead of living inside a useEffect keyed on the
-  // resize state — the old version re-subscribed two window listeners on
-  // every single mousemove frame.
+  /* ---------------- Edge resize (Timeline & Week Cards) ---------------- */
 
   const handleResizeStart = (
     e: React.MouseEvent,
@@ -1017,6 +1188,22 @@ export default function SlingScheduleCanvas() {
     const initialX = e.clientX;
     const initialStart = new Date(shift.startTime);
     const initialEnd = new Date(shift.endTime);
+    const shiftDateIso = formatDateIso(initialStart);
+
+    const shiftSchedule = getOperatingHoursForDate(
+      initialStart,
+      (gridData?.metadata?.operatingHours || selectedLocation?.operatingHours) as any
+    );
+
+    let boundsStart = initialStart;
+    let boundsEnd = initialEnd;
+    if (shiftSchedule?.isOpen) {
+      boundsStart = combineDateAndTime(shiftDateIso, shiftSchedule.open);
+      boundsEnd = combineDateAndTime(shiftDateIso, shiftSchedule.close);
+      if (boundsEnd.getTime() <= boundsStart.getTime()) {
+        boundsEnd = new Date(boundsEnd.getTime() + 24 * 60 * 60 * 1000);
+      }
+    }
 
     let currentStart = initialStart;
     let currentEnd = initialEnd;
@@ -1036,14 +1223,11 @@ export default function SlingScheduleCanvas() {
         Math.round(rawMinutes / TIMELINE_SNAP_MINUTES) * TIMELINE_SNAP_MINUTES;
 
       if (edge === 'end') {
-        const nextEnd = new Date(
-          initialEnd.getTime() + snappedMinutes * 60 * 1000
-        );
-
-        if (
-          nextEnd.getTime() - initialStart.getTime() >=
-          MIN_SHIFT_MINUTES * 60 * 1000
-        ) {
+        let nextEnd = new Date(initialEnd.getTime() + snappedMinutes * 60 * 1000);
+        if (shiftSchedule?.isOpen && nextEnd.getTime() > boundsEnd.getTime()) {
+          nextEnd = boundsEnd;
+        }
+        if (nextEnd.getTime() - initialStart.getTime() >= MIN_SHIFT_MINUTES * 60 * 1000) {
           currentEnd = nextEnd;
           setResizeGesture({
             shiftId: shift.id,
@@ -1053,14 +1237,11 @@ export default function SlingScheduleCanvas() {
           });
         }
       } else {
-        const nextStart = new Date(
-          initialStart.getTime() + snappedMinutes * 60 * 1000
-        );
-
-        if (
-          initialEnd.getTime() - nextStart.getTime() >=
-          MIN_SHIFT_MINUTES * 60 * 1000
-        ) {
+        let nextStart = new Date(initialStart.getTime() + snappedMinutes * 60 * 1000);
+        if (shiftSchedule?.isOpen && nextStart.getTime() < boundsStart.getTime()) {
+          nextStart = boundsStart;
+        }
+        if (initialEnd.getTime() - nextStart.getTime() >= MIN_SHIFT_MINUTES * 60 * 1000) {
           currentStart = nextStart;
           setResizeGesture({
             shiftId: shift.id,
@@ -1081,6 +1262,12 @@ export default function SlingScheduleCanvas() {
         currentStart.getTime() === initialStart.getTime() &&
         currentEnd.getTime() === initialEnd.getTime()
       ) {
+        return;
+      }
+
+      const boundaryError = getShiftBoundaryViolation(shiftDateIso, currentStart, currentEnd, shiftSchedule);
+      if (boundaryError) {
+        setErrorMessage(boundaryError);
         return;
       }
 
@@ -1120,23 +1307,26 @@ export default function SlingScheduleCanvas() {
     setDragOverRow(null);
   };
 
-  const snapTimelineTime = useCallback((clientX: number, element: HTMLElement, dateIso: string) => {
-    const rect = element.getBoundingClientRect();
-    const localX = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    const rawMinutes = (localX / hourWidth) * 60 + TIMELINE_START_HOUR * 60;
-    const snappedMinutes = Math.round(rawMinutes / TIMELINE_SNAP_MINUTES) * TIMELINE_SNAP_MINUTES;
-    const clampedMinutes = Math.max(
-      TIMELINE_START_HOUR * 60,
-      Math.min(TIMELINE_END_HOUR * 60 - MIN_SHIFT_MINUTES, snappedMinutes)
-    );
-    const hh = Math.floor(clampedMinutes / 60);
-    const mm = clampedMinutes % 60;
-    return {
-      start: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
-      startMinutes: clampedMinutes,
-      date: combineDateAndTime(dateIso, '00:00'),
-    };
-  }, [hourWidth]);
+  const snapTimelineTime = useCallback(
+    (clientX: number, element: HTMLElement, dateIso: string) => {
+      const rect = element.getBoundingClientRect();
+      const localX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const rawMinutes = (localX / hourWidth) * 60 + timelineStartHour * 60;
+      const snappedMinutes = Math.round(rawMinutes / TIMELINE_SNAP_MINUTES) * TIMELINE_SNAP_MINUTES;
+      const clampedMinutes = Math.max(
+        timelineStartHour * 60,
+        Math.min(timelineEndHour * 60 - MIN_SHIFT_MINUTES, snappedMinutes)
+      );
+      const hh = Math.floor(clampedMinutes / 60);
+      const mm = clampedMinutes % 60;
+      return {
+        start: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`,
+        startMinutes: clampedMinutes,
+        date: combineDateAndTime(dateIso, '00:00'),
+      };
+    },
+    [hourWidth, timelineStartHour, timelineEndHour]
+  );
 
   const handleTimelineDragOver = (e: React.DragEvent, userId: string) => {
     e.preventDefault();
@@ -1159,14 +1349,11 @@ export default function SlingScheduleCanvas() {
     const employeeId = e.dataTransfer.getData('application/x-sling-employee') || draggedEmployeeId;
     const shiftId = e.dataTransfer.getData('text/plain');
 
-    // Dragging a roster employee into the timeline creates a new shift at the
-    // exact drop time. We keep the modal only for the position confirmation;
-    // start/end are already pre-filled from the drop location.
     if (employeeId && employeeById.has(employeeId)) {
       const employee = employeeById.get(employeeId)!;
       const targetElement = e.currentTarget as HTMLDivElement;
       const { start, startMinutes } = snapTimelineTime(e.clientX, targetElement, targetDateIso);
-      const defaultEndMinutes = Math.min(startMinutes + 240, TIMELINE_END_HOUR * 60);
+      const defaultEndMinutes = Math.min(startMinutes + 240, timelineEndHour * 60);
       const end = `${String(Math.floor(defaultEndMinutes / 60)).padStart(2, '0')}:${String(defaultEndMinutes % 60).padStart(2, '0')}`;
 
       if (positionsList.length === 0) {
@@ -1204,6 +1391,17 @@ export default function SlingScheduleCanvas() {
     const durationMs = oldEnd.getTime() - oldStart.getTime();
     const newEnd = new Date(newStart.getTime() + durationMs);
 
+    const targetDaySched = getOperatingHoursForDate(
+      new Date(`${targetDateIso}T00:00:00`),
+      (gridData?.metadata?.operatingHours || selectedLocation?.operatingHours) as any
+    );
+
+    const boundaryError = getShiftBoundaryViolation(targetDateIso, newStart, newEnd, targetDaySched);
+    if (boundaryError) {
+      setErrorMessage(boundaryError);
+      return;
+    }
+
     if (currentShift.assignedUser?.id === targetUserId && newStart.getTime() === oldStart.getTime()) return;
 
     if (wouldConflict(targetUserId, newStart, newEnd, shiftId)) {
@@ -1228,7 +1426,7 @@ export default function SlingScheduleCanvas() {
     if (e.target !== e.currentTarget || positionsList.length === 0) return;
     const target = e.currentTarget as HTMLDivElement;
     const { start, startMinutes } = snapTimelineTime(e.clientX, target, dateIso);
-    const endMinutes = Math.min(startMinutes + 240, TIMELINE_END_HOUR * 60);
+    const endMinutes = Math.min(startMinutes + 240, timelineEndHour * 60);
     const end = `${String(Math.floor(endMinutes / 60)).padStart(2, '0')}:${String(endMinutes % 60).padStart(2, '0')}`;
     const employee = employeeById.get(userId);
 
@@ -1328,16 +1526,13 @@ export default function SlingScheduleCanvas() {
     });
   }, [weekDays, scheduleRows]);
 
-  // Real overtime figure (over 40h/week per employee) rather than a
-  // hardcoded "0h". Note this uses each employee's total scheduled
-  // hours for the visible week only.
   const totalOvertimeHours = useMemo(() => {
     if (!scheduleRows.length) return 0;
     return scheduleRows.reduce(
       (sum, row) => sum + Math.max(0, row.totalHours - WEEKLY_OVERTIME_THRESHOLD_HOURS),
       0
     );
-  }, [gridData?.rows]);
+  }, [scheduleRows]);
 
   const selectedDayIso = formatDateIso(selectedDay);
   const selectedDaySummary = daySummaries.find((_, index) => formatDateIso(weekDays[index]) === selectedDayIso) ?? {
@@ -1370,7 +1565,7 @@ export default function SlingScheduleCanvas() {
 
   return (
     <div className="space-y-3 max-w-[1720px] mx-auto select-none">
-      {/* Header */}
+      {/* Top Controls Toolbar */}
       <div className="bg-card border border-card-border rounded-xl p-3 shadow-sm">
         <div className="flex flex-col xl:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3 flex-wrap">
@@ -1422,7 +1617,7 @@ export default function SlingScheduleCanvas() {
 
             {viewMode === 'day' && (
               <div className="hidden lg:flex items-center gap-2 bg-background border border-card-border rounded-lg px-3 py-1.5">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Timeline</span>
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Timeline Zoom</span>
                 <input
                   type="range"
                   min={MIN_HOUR_WIDTH}
@@ -1438,7 +1633,6 @@ export default function SlingScheduleCanvas() {
                 </span>
               </div>
             )}
-
           </div>
 
           <div className="flex items-center gap-6 text-xs divide-x divide-card-border font-mono overflow-x-auto max-w-full">
@@ -1490,7 +1684,9 @@ export default function SlingScheduleCanvas() {
               </div>
             </div>
             <div className="text-[10px] text-muted-foreground hidden sm:block">
-              Drag employee to schedule · click empty time to add · drag shifts to move · drag either edge to resize · 15 min snap
+              {activeDayOperatingSchedule?.isOpen
+                ? `Store Open: ${activeDayOperatingSchedule.open} – ${activeDayOperatingSchedule.close} · Drag employee to schedule · 15 min snap`
+                : 'Store is closed today · Shifts cannot be scheduled'}
             </div>
           </div>
         )}
@@ -1517,6 +1713,10 @@ export default function SlingScheduleCanvas() {
               availability={availability}
               resizeGesture={resizeGesture}
               hourWidth={hourWidth}
+              timelineStartHour={timelineStartHour}
+              timelineEndHour={timelineEndHour}
+              isStoreClosed={!activeDayOperatingSchedule?.isOpen}
+              operatingSchedule={activeDayOperatingSchedule}
               dragOverRow={dragOverRow}
               onDragOver={handleTimelineDragOver}
               onDragLeave={(e) => {
@@ -1538,7 +1738,7 @@ export default function SlingScheduleCanvas() {
           )}
         </div>
       ) : (
-        /* Existing weekly matrix */
+        /* Week Matrix Mode */
         <div className="border border-card-border rounded-xl overflow-x-auto bg-background shadow-lg">
           <div className="min-w-[1360px]">
             <div className="grid grid-cols-8 border-b border-card-border bg-card text-xs font-semibold sticky top-0 z-20">
@@ -1546,21 +1746,39 @@ export default function SlingScheduleCanvas() {
                 <span>EMPLOYEES</span>
                 <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
               </div>
-              {weekDays.map((day, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    setSelectedDay(day);
-                    setViewMode('day');
-                  }}
-                  className="p-3 text-center border-r last:border-r-0 border-card-border text-foreground font-mono text-[11px] hover:bg-muted transition-colors"
-                >
-                  <span className="uppercase text-muted-foreground font-sans font-bold mr-1">
-                    {day.toLocaleDateString('en-US', { weekday: 'short' })}
-                  </span>
-                  <span>{day.getDate()}</span>
-                </button>
-              ))}
+              {weekDays.map((day, idx) => {
+                const daySched = getOperatingHoursForDate(
+                  day,
+                  (gridData?.metadata?.operatingHours || selectedLocation?.operatingHours) as any
+                );
+
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setSelectedDay(day);
+                      setViewMode('day');
+                    }}
+                    className="p-2.5 text-center border-r last:border-r-0 border-card-border text-foreground font-mono hover:bg-muted transition-colors"
+                  >
+                    <div className="text-[11px]">
+                      <span className="uppercase text-muted-foreground font-sans font-bold mr-1">
+                        {day.toLocaleDateString('en-US', { weekday: 'short' })}
+                      </span>
+                      <span>{day.getDate()}</span>
+                    </div>
+                    <div className="text-[9px] font-mono mt-0.5">
+                      {daySched ? (
+                        daySched.isOpen ? (
+                          <span className="text-muted-foreground">{daySched.open}–{daySched.close}</span>
+                        ) : (
+                          <span className="text-rose-600 dark:text-rose-400 font-semibold">Closed</span>
+                        )
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="divide-y divide-card-border">
@@ -1593,11 +1811,29 @@ export default function SlingScheduleCanvas() {
                         const cellKey = `${row.id}-${dayIso}`;
                         const isDragOver = dragOverCell === cellKey;
 
+                        const daySched = getOperatingHoursForDate(
+                          day,
+                          (gridData?.metadata?.operatingHours || selectedLocation?.operatingHours) as any
+                        );
+                        const isClosed = !daySched || !daySched.isOpen;
+
                         const dayShifts = row.shifts
                           .filter((s) => isSameLocalDate(s.startTime, day))
                           .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
                         const userUnavail = availability.find((a) => a.userId === row.id && a.date === dayIso);
+
+                        if (isClosed) {
+                          return (
+                            <div
+                              key={dIdx}
+                              className="p-1.5 border-r last:border-r-0 border-card-border min-h-[96px] bg-muted/40 flex flex-col items-center justify-center text-[10px] text-muted-foreground/60 font-mono"
+                            >
+                              <DoorClosed className="w-4 h-4 mb-1 text-muted-foreground/40" />
+                              <span>Closed</span>
+                            </div>
+                          );
+                        }
 
                         return (
                           <div
@@ -1689,6 +1925,7 @@ export default function SlingScheduleCanvas() {
         </div>
       )}
 
+      {/* Quick Add Shift Modal */}
       {quickCreateTarget && (
         <QuickCreateModal
           dateIso={quickCreateTarget.dateIso}
@@ -1696,6 +1933,10 @@ export default function SlingScheduleCanvas() {
           initialStart={quickCreateTarget.start}
           initialEnd={quickCreateTarget.end}
           initialPositionId={quickCreateTarget.positionId}
+          operatingSchedule={getOperatingHoursForDate(
+            new Date(quickCreateTarget.dateIso + 'T00:00:00'),
+            (gridData?.metadata?.operatingHours || selectedLocation?.operatingHours) as any
+          )}
           positions={positionsList}
           submitting={submitting}
           onClose={() => setQuickCreateTarget(null)}
@@ -1703,6 +1944,7 @@ export default function SlingScheduleCanvas() {
         />
       )}
 
+      {/* Confirmation Dialogs */}
       {pendingDelete && (
         <ConfirmDialog
           title="Delete shift?"
@@ -1725,5 +1967,4 @@ export default function SlingScheduleCanvas() {
       )}
     </div>
   );
-
 }
