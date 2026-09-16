@@ -9,6 +9,7 @@ import {
 } from '@/services/scheduling.service';
 import { employeeService } from '@/services/employee.service';
 import { positionService } from '@/services/position.service';
+import { timeOffService } from '@/services/time-off.service';
 import {
   ChevronLeft,
   ChevronRight,
@@ -79,13 +80,6 @@ function timeToMinutes(time: string): number {
   return (hours || 0) * 60 + (minutes || 0);
 }
 
-function minutesToTime(totalMinutes: number): string {
-  const normalized = Math.max(0, Math.round(totalMinutes));
-  const hours = Math.floor(normalized / 60) % 24;
-  const minutes = normalized % 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-}
-
 function getOperatingHoursForDate(
   date: Date,
   operatingHours?: Record<string, any> | null
@@ -112,8 +106,6 @@ function getOperatingHoursForDate(
     sched.end ??
     sched.endTime;
 
-  // Never invent an operating window when the store is marked open but
-  // the actual opening/closing times are missing.
   if (isOpen && (!open || !close)) return null;
 
   return {
@@ -200,6 +192,20 @@ function getShiftBoundaryViolation(
   }
 
   return null;
+}
+
+function expandDateRange(startDateStr: string, endDateStr: string): string[] {
+  const dates: string[] = [];
+  const start = new Date(`${startDateStr.slice(0, 10)}T00:00:00`);
+  const end = new Date(`${endDateStr.slice(0, 10)}T00:00:00`);
+  const current = new Date(start);
+
+  while (current <= end) {
+    dates.push(formatDateIso(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1028,13 +1034,11 @@ export default function SlingScheduleCanvas() {
     const openMinutes = timeToMinutes(activeDayOperatingSchedule.open);
     let closeMinutes = timeToMinutes(activeDayOperatingSchedule.close);
 
-    // Support overnight operating windows such as 18:00–02:00.
     if (closeMinutes <= openMinutes) {
       closeMinutes += 24 * 60;
     }
 
     return {
-      // Decimal hours preserve exact minute boundaries, e.g. 06:30 = 6.5.
       timelineStartHour: openMinutes / 60,
       timelineEndHour: closeMinutes / 60,
     };
@@ -1054,6 +1058,30 @@ export default function SlingScheduleCanvas() {
     }
   }, [locationId, startDateIso, endDateIso]);
 
+  const loadAvailability = useCallback(async () => {
+    if (!locationId) return;
+    try {
+      const requests = await timeOffService.getPendingForLocation(locationId);
+      const windows: AvailabilityWindow[] = [];
+
+      requests.forEach((req) => {
+        const dates = expandDateRange(req.startDate, req.endDate);
+        dates.forEach((dStr) => {
+          windows.push({
+            userId: req.userId,
+            date: dStr,
+            allDay: true,
+            reason: req.reason ? `${req.status === 'approved' ? 'Approved' : 'Pending'}: ${req.reason}` : 'Time Off',
+          });
+        });
+      });
+
+      setAvailability(windows);
+    } catch (err) {
+      console.error('Failed to load location availability records', err);
+    }
+  }, [locationId]);
+
   const loadCatalogs = useCallback(async () => {
     if (!orgId) return;
     try {
@@ -1071,7 +1099,8 @@ export default function SlingScheduleCanvas() {
 
   useEffect(() => {
     loadGrid();
-  }, [loadGrid]);
+    loadAvailability();
+  }, [loadGrid, loadAvailability]);
 
   useEffect(() => {
     loadCatalogs();
@@ -1116,6 +1145,19 @@ export default function SlingScheduleCanvas() {
     [scheduleRows]
   );
 
+  const getAvailabilityConflict = useCallback(
+    (userId: string, dateIso: string) => {
+      const unavail = availability.find((a) => a.userId === userId && a.date === dateIso);
+      if (unavail) {
+        return unavail.allDay
+          ? `Employee has a time-off window on this date (${unavail.reason || 'Unavailable'}).`
+          : `Employee is unavailable: ${unavail.reason || 'Unavailable'}.`;
+      }
+      return null;
+    },
+    [availability]
+  );
+
   /* ---------------- Drag & drop between cells (Week Matrix) ---------------- */
 
   const handleDragStart = (e: React.DragEvent, shiftId: string) => {
@@ -1153,6 +1195,12 @@ export default function SlingScheduleCanvas() {
       return;
     }
 
+    const timeOffError = getAvailabilityConflict(targetUserId, targetDateIso);
+    if (timeOffError) {
+      setErrorMessage(timeOffError);
+      return;
+    }
+
     if (currentShift.assignedUser?.id === targetUserId && newStart.getTime() === oldStart.getTime()) {
       return;
     }
@@ -1169,6 +1217,7 @@ export default function SlingScheduleCanvas() {
         newEndTime: newEnd.toISOString(),
       });
       await loadGrid();
+      await loadAvailability();
     } catch (err: any) {
       setErrorMessage(err?.response?.data?.message || 'Shift conflict encountered.');
       await loadGrid();
@@ -1283,6 +1332,7 @@ export default function SlingScheduleCanvas() {
           newEndTime: currentEnd.toISOString(),
         });
         await loadGrid();
+        await loadAvailability();
       } catch (err: any) {
         setErrorMessage(err?.response?.data?.message || 'Conflict detected resizing shift.');
         await loadGrid();
@@ -1361,6 +1411,12 @@ export default function SlingScheduleCanvas() {
         return;
       }
 
+      const timeOffError = getAvailabilityConflict(employeeId, targetDateIso);
+      if (timeOffError) {
+        setErrorMessage(timeOffError);
+        return;
+      }
+
       if (wouldConflict(employeeId, combineDateAndTime(targetDateIso, start), combineDateAndTime(targetDateIso, end), '')) {
         setErrorMessage('That employee already has a shift overlapping the selected time.');
         return;
@@ -1402,6 +1458,12 @@ export default function SlingScheduleCanvas() {
       return;
     }
 
+    const timeOffError = getAvailabilityConflict(targetUserId, targetDateIso);
+    if (timeOffError) {
+      setErrorMessage(timeOffError);
+      return;
+    }
+
     if (currentShift.assignedUser?.id === targetUserId && newStart.getTime() === oldStart.getTime()) return;
 
     if (wouldConflict(targetUserId, newStart, newEnd, shiftId)) {
@@ -1416,6 +1478,7 @@ export default function SlingScheduleCanvas() {
         newEndTime: newEnd.toISOString(),
       });
       await loadGrid();
+      await loadAvailability();
     } catch (err: any) {
       setErrorMessage(err?.response?.data?.message || 'Shift conflict encountered.');
       await loadGrid();
@@ -1448,6 +1511,12 @@ export default function SlingScheduleCanvas() {
       setSubmitting(true);
       setErrorMessage(null);
 
+      const timeOffError = getAvailabilityConflict(quickCreateTarget.userId, quickCreateTarget.dateIso);
+      if (timeOffError) {
+        setErrorMessage(timeOffError);
+        return;
+      }
+
       const start = combineDateAndTime(quickCreateTarget.dateIso, input.start);
       let end = combineDateAndTime(quickCreateTarget.dateIso, input.end);
       if (input.overnight || end.getTime() <= start.getTime()) {
@@ -1469,6 +1538,7 @@ export default function SlingScheduleCanvas() {
 
       setQuickCreateTarget(null);
       await loadGrid();
+      await loadAvailability();
     } catch (err: any) {
       setErrorMessage(err?.response?.data?.message || 'Failed to create shift.');
     } finally {
@@ -1481,6 +1551,7 @@ export default function SlingScheduleCanvas() {
     try {
       await schedulingService.deleteShift(pendingDelete.shiftId);
       await loadGrid();
+      await loadAvailability();
     } catch (err: any) {
       setErrorMessage(err?.response?.data?.message || 'Failed to delete shift.');
     } finally {
@@ -1497,6 +1568,7 @@ export default function SlingScheduleCanvas() {
       await schedulingService.publishRoster(locationId, startDateIso, endDateIso);
       setSuccessMessage('Roster published successfully!');
       await loadGrid();
+      await loadAvailability();
     } catch (err: any) {
       setErrorMessage(err?.response?.data?.message || 'Failed to publish roster.');
     } finally {
