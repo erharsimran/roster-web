@@ -228,7 +228,7 @@ export default function LocationsPage() {
             Store Locations & Operating Hours
           </h1>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Configure store branches, weekly operating boundaries, and mobile GPS geofences[cite: 3].
+            Configure store branches, weekly operating boundaries, and mobile GPS geofences.
           </p>
         </div>
         <button
@@ -347,7 +347,7 @@ export default function LocationsPage() {
                 <div className="p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40 space-y-1">
                   <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900 dark:text-neutral-200">
                     <Navigation className="w-3.5 h-3.5 text-sky-500" />
-                    <span>Mobile GPS Geofence[cite: 3]</span>
+                    <span>Mobile GPS Geofence</span>
                   </div>
                   <div className="text-[11px] text-neutral-500 font-mono">
                     {activeLocation.latitude !== null && activeLocation.longitude !== null ? (
@@ -363,12 +363,12 @@ export default function LocationsPage() {
                 <div className="p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40 space-y-1">
                   <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900 dark:text-neutral-200">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                    <span>Leadership Rule[cite: 3]</span>
+                    <span>Leadership Rule</span>
                   </div>
                   <div className="text-[11px] text-neutral-500">
                     {activeLocation.requireLeadershipOnDuty ? (
                       <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                        Active (Alerts if 0 leads are rostered)[cite: 4]
+                        Active (Alerts if 0 leads are rostered)
                       </span>
                     ) : (
                       <span className="text-neutral-400">Disabled</span>
@@ -380,7 +380,7 @@ export default function LocationsPage() {
               {/* Operating Hours Table */}
               <div className="space-y-3">
                 <div className="text-xs font-bold text-neutral-900 dark:text-white uppercase tracking-wider font-mono">
-                  Weekly Operating Schedule (Grid Window)[cite: 3, 4]
+                  Weekly Operating Schedule (Grid Window)
                 </div>
                 <div className="border border-neutral-200 dark:border-neutral-800 rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
@@ -443,7 +443,7 @@ export default function LocationsPage() {
                   {modalMode === 'create' ? 'Add Store Location' : `Configure: ${name}`}
                 </h3>
                 <p className="text-xs text-neutral-500 mt-0.5">
-                  Set branch credentials, GPS coordinates, and weekly operating windows[cite: 3].
+                  Set branch credentials, GPS coordinates, and weekly operating windows.
                 </p>
               </div>
               <button onClick={closeModal} className="text-neutral-400 hover:text-neutral-600 dark:hover:text-white">
@@ -498,7 +498,7 @@ export default function LocationsPage() {
               <div className="p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40 space-y-3">
                 <div className="text-xs font-bold text-neutral-900 dark:text-neutral-200 flex items-center gap-1.5">
                   <Navigation className="w-3.5 h-3.5 text-sky-500" />
-                  <span>GPS Geofence Tracking[cite: 3]</span>
+                  <span>GPS Geofence Tracking</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
@@ -541,10 +541,10 @@ export default function LocationsPage() {
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950/40">
                 <div>
                   <div className="text-xs font-bold text-neutral-900 dark:text-neutral-200">
-                    Require Leadership on Duty[cite: 3]
+                    Require Leadership on Duty
                   </div>
                   <div className="text-[11px] text-neutral-500">
-                    Flags gaps on schedule if no Manager or Lead is rostered during open hours[cite: 3, 4].
+                    Flags gaps on schedule if no Manager or Lead is rostered during open hours.
                   </div>
                 </div>
                 <input
@@ -558,7 +558,7 @@ export default function LocationsPage() {
               {/* Operating Hours Grid */}
               <div className="space-y-2">
                 <div className="text-xs font-bold text-neutral-900 dark:text-neutral-200">
-                  Operating Hours Schedule[cite: 3]
+                  Operating Hours Schedule
                 </div>
                 <div className="space-y-1.5">
                   {DAYS_OF_WEEK.map((day) => {

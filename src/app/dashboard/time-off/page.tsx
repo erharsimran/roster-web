@@ -173,7 +173,7 @@ export default function TimeOffPage() {
             <span>Time Off & Leave</span>
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Submit vacation or personal absence requests and review team leave submissions[cite: 2].
+            Submit vacation or personal absence requests and review team leave submissions.
           </p>
         </div>
 
@@ -222,7 +222,7 @@ export default function TimeOffPage() {
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <span>Pending Approvals[cite: 2]</span>
+            <span>Pending Approvals</span>
             <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-neutral-200 dark:bg-neutral-700 text-foreground font-mono">
               {pendingRequests.length}
             </span>
@@ -237,7 +237,7 @@ export default function TimeOffPage() {
               : 'text-muted-foreground hover:text-foreground'
           }`}
         >
-          <span>My Requests[cite: 2]</span>
+          <span>My Requests</span>
           <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-neutral-200 dark:bg-neutral-700 text-foreground font-mono">
             {myRequests.length}
           </span>
@@ -295,7 +295,7 @@ export default function TimeOffPage() {
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-card-border bg-background text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-neutral-800 text-xs font-medium transition-colors disabled:opacity-50"
                         >
                           <XCircle className="w-3.5 h-3.5" />
-                          <span>Deny[cite: 2]</span>
+                          <span>Deny</span>
                         </button>
                         <button
                           onClick={() => handleReview(req.id, 'approve')}
@@ -303,7 +303,7 @@ export default function TimeOffPage() {
                           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors shadow-sm disabled:opacity-50"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Approve[cite: 2]</span>
+                          <span>Approve</span>
                         </button>
                       </div>
                     </div>
@@ -354,10 +354,10 @@ export default function TimeOffPage() {
                           onClick={() => handleCancelRequest(req.id)}
                           disabled={submitting}
                           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-rose-500 transition-colors self-end sm:self-center"
-                          title="Cancel Request[cite: 2]"
+                          title="Cancel Request"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
-                          <span>Cancel Request[cite: 2]</span>
+                          <span>Cancel Request</span>
                         </button>
                       )}
                     </div>
@@ -375,9 +375,9 @@ export default function TimeOffPage() {
           <div className="bg-card border border-card-border rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-card-border pb-2.5">
               <div>
-                <h3 className="text-sm font-bold text-foreground">Request Time Off[cite: 2]</h3>
+                <h3 className="text-sm font-bold text-foreground">Request Time Off</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Select your dates and provide an optional explanation[cite: 2].
+                  Select your dates and provide an optional explanation.
                 </p>
               </div>
               <button onClick={() => setIsModalOpen(false)} className="text-muted-foreground hover:text-foreground">
@@ -388,7 +388,7 @@ export default function TimeOffPage() {
             <form onSubmit={handleCreateRequest} className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  First Day of Absence[cite: 2] <span className="text-rose-500">*</span>
+                  First Day of Absence <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="date"
@@ -401,7 +401,7 @@ export default function TimeOffPage() {
 
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Last Day of Absence[cite: 2] <span className="text-rose-500">*</span>
+                  Last Day of Absence <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="date"
@@ -414,13 +414,13 @@ export default function TimeOffPage() {
 
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Reason / Notes[cite: 2]
+                  Reason / Notes
                 </label>
                 <textarea
                   rows={2}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g. Vacation, medical appointment, personal matter[cite: 2]"
+                  placeholder="e.g. Vacation, medical appointment, personal matter"
                   className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground outline-none"
                 />
               </div>

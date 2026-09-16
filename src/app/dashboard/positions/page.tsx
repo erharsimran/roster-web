@@ -215,7 +215,7 @@ export default function PositionsPage() {
             ) : filteredPositions.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-5 py-8 text-center text-muted-foreground">
-                  No positions found. Click &quot;New Position&quot; to establish your job catalog[cite: 1].
+                  No positions found. Click &quot;New Position&quot; to establish your job catalog.
                 </td>
               </tr>
             ) : (
@@ -279,7 +279,7 @@ export default function PositionsPage() {
                   {modalMode === 'create' ? 'Create Job Position' : `Edit Position: ${activePosition?.name}`}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Configure the role label and baseline hourly compensation[cite: 1].
+                  Configure the role label and baseline hourly compensation.
                 </p>
               </div>
               <button onClick={closeModal} className="text-muted-foreground hover:text-muted-foreground">

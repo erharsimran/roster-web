@@ -1,6 +1,6 @@
 import type { components, paths } from './api';
 
-// Canonical Schema DTOs (Request bodies with schema definitions)[cite: 1]
+// Canonical Schema DTOs (Request bodies with schema definitions)
 export type Schemas = components['schemas'];
 export type SetupOrgDto = Schemas['SetupOrgDto'];
 export type CreatePositionDto = Schemas['CreatePositionDto'];
@@ -45,7 +45,7 @@ export interface PositionItem {
     hourlyRate?: number | null;
 }
 
-// User Profile returned by GET /auth/me[cite: 1, 2]
+// User Profile returned by GET /auth/me
 export interface UserProfile {
     id: string;
     email: string;
@@ -61,7 +61,7 @@ export interface UserProfile {
     scopeId?: string;
 }
 
-// Schedule Grid returned by GET /scheduling/locations/{locationId}/grid[cite: 1, 2]
+// Schedule Grid returned by GET /scheduling/locations/{locationId}/grid
 export interface ShiftSummary {
     id: string;
     locationId: string;

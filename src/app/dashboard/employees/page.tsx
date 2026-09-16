@@ -413,7 +413,7 @@ export default function EmployeesPage() {
                   {modalMode === 'create' ? 'Onboard Team Member' : 'Update Employee Profile'}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Configure identity, access boundary, and assigned positions[cite: 1].
+                  Configure identity, access boundary, and assigned positions.
                 </p>
               </div>
               <button onClick={closeModal} className="text-muted-foreground hover:text-muted-foreground">
@@ -537,7 +537,7 @@ export default function EmployeesPage() {
               {/* Qualified Positions Selector */}
               <div>
                 <label className="block text-xs font-medium text-muted-foreground mb-1">
-                  Assigned Qualified Positions[cite: 1]
+                  Assigned Qualified Positions
                 </label>
                 {positions.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">

@@ -181,7 +181,7 @@ export default function OrganizationRolesPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white">Organization Roles</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Configure tenant-specific roles, assign operational boundaries, and trace modification history[cite: 1].
+            Configure tenant-specific roles, assign operational boundaries, and trace modification history.
           </p>
         </div>
         <button
@@ -255,7 +255,7 @@ export default function OrganizationRolesPage() {
                     </div>
                     {role.isSystemRole && (
                       <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-card-border uppercase">
-                        System[cite: 1]
+                        System
                       </span>
                     )}
                   </button>
@@ -272,14 +272,14 @@ export default function OrganizationRolesPage() {
                   <h2 className="text-sm font-semibold text-white">{activeRole?.name}</h2>
                   {activeRole?.isSystemRole && (
                     <span className="text-[10px] text-amber-400 font-mono bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/50">
-                      System Preset[cite: 1]
+                      System Preset
                     </span>
                   )}
                 </div>
                 {activeRole?.lastUpdatedBy && (
                   <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1 font-mono">
                     <Clock className="w-3 h-3" />
-                    Last updated by {activeRole.lastUpdatedBy.fullName} ({activeRole.lastUpdatedBy.email})[cite: 1]
+                    Last updated by {activeRole.lastUpdatedBy.fullName} ({activeRole.lastUpdatedBy.email})
                   </p>
                 )}
               </div>
@@ -319,7 +319,7 @@ export default function OrganizationRolesPage() {
                   <div>
                     <div className="font-semibold">Unrestricted Superadmin Authority</div>
                     <div className="text-emerald-400/80 text-[11px] mt-0.5">
-                      The Owner role has full administrative clearance across all locations, billing, positions, and staff rosters[cite: 1].
+                      The Owner role has full administrative clearance across all locations, billing, positions, and staff rosters.
                     </div>
                   </div>
                 </div>
@@ -357,7 +357,7 @@ export default function OrganizationRolesPage() {
                   {modalMode === 'create' ? 'Create Custom Role' : `Edit Role: ${activeRole?.name}`}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Set role identity and check permitted capabilities[cite: 1].
+                  Set role identity and check permitted capabilities.
                 </p>
               </div>
               <button onClick={closeModal} className="text-muted-foreground hover:text-muted-foreground">
@@ -381,7 +381,7 @@ export default function OrganizationRolesPage() {
                 />
                 {modalMode === 'edit' && activeRole?.isSystemRole && (
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    System preset role names cannot be altered[cite: 1]. You can modify their permission mappings below.
+                    System preset role names cannot be altered. You can modify their permission mappings below.
                   </p>
                 )}
               </div>

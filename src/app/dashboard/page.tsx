@@ -116,7 +116,7 @@ export default function DashboardOverviewPage() {
           <div>
             <h2 className="text-sm font-semibold text-foreground">Team Directory</h2>
             <p className="text-xs text-muted-foreground mt-1">
-              Onboard staff, assign roles, and map qualified positions[cite: 1, 2].
+              Onboard staff, assign roles, and map qualified positions.
             </p>
           </div>
         </Link>
