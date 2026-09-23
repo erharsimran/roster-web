@@ -14,11 +14,8 @@ import {
   AlertTriangle,
   Play,
   Square,
-  ShieldCheck,
   Navigation,
   Calendar,
-  User,
-  Filter,
   RefreshCw,
   X,
 } from 'lucide-react';
@@ -80,6 +77,9 @@ export default function TimesheetsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Clock Out Warning/Confirmation Modal State
+  const [showClockOutConfirm, setShowClockOutConfirm] = useState(false);
+
   // Live timer tick for active shift
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function TimesheetsPage() {
       const startIso = `${dateRange.start}T00:00:00Z`;
       const endIso = `${dateRange.end}T23:59:59Z`;
       const data = await timeTrackingService.getTimesheets(locationId, startIso, endIso);
-      setEntries(data);
+      setEntries(Array.isArray(data) ? data : []);
     } catch (err: any) {
       setErrorMessage(err.response?.data?.message || 'Failed to fetch timesheet entries.');
     } finally {
@@ -107,13 +107,29 @@ export default function TimesheetsPage() {
     loadTimesheets();
   }, [loadTimesheets]);
 
-  // Identify current user's active clock-in
+  // ✅ ACCURATE ACTIVE SHIFT DETECTION:
+  // Sort entries newest-first and check ONLY the latest punch for the current user.
   const activeEntry = useMemo(() => {
-    return entries.find((e) => e.userId === user?.id && e.status === 'active') || null;
+    if (!user?.id || !entries.length) return null;
+
+    const myEntries = entries
+      .filter((e) => e.userId === user.id || (e as any).user?.id === user.id)
+      .sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
+
+    if (!myEntries.length) return null;
+
+    const latest = myEntries[0];
+    const isClockedOut = Boolean(latest.clockOut && latest.clockOut !== 'null' && latest.clockOut !== '');
+
+    // Active ONLY if the latest entry has no clockOut timestamp
+    return !isClockedOut ? latest : null;
   }, [entries, user?.id]);
 
   const handleClockIn = async () => {
-    if (!locationId) return;
+    if (!locationId) {
+      setErrorMessage('Please select a store location before clocking in.');
+      return;
+    }
     try {
       setPunching(true);
       setErrorMessage(null);
@@ -143,13 +159,16 @@ export default function TimesheetsPage() {
 
       const coords = await getBrowserLocation();
       await timeTrackingService.clockOut({
+        timeEntryId: activeEntry?.id,
+        id: activeEntry?.id,
         latitude: coords.latitude,
         longitude: coords.longitude,
         notes: notesInput.trim() || undefined,
-      });
+      } as any);
 
       setNotesInput('');
       setSuccessMessage('Clock-out recorded. Timesheet sent for manager review.');
+      setShowClockOutConfirm(false);
       await loadTimesheets();
     } catch (err: any) {
       setErrorMessage(err.response?.data?.message || err.message || 'Clock-out failed.');
@@ -172,37 +191,43 @@ export default function TimesheetsPage() {
     }
   };
 
-  const renderStatusBadge = (status: TimeEntryStatus) => {
-    switch (status) {
-      case 'approved':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
-            Approved
-          </span>
-        );
-      case 'flagged':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800">
-            Flagged
-          </span>
-        );
-      case 'active':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-800 animate-pulse">
-            Clocked In
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-neutral-300 dark:border-neutral-700">
-            Completed
-          </span>
-        );
+  const renderStatusBadge = (status: TimeEntryStatus, clockOut?: string | null) => {
+    const isStillActive = !clockOut || clockOut === 'null' || clockOut === '';
+
+    if (isStillActive) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-800 animate-pulse">
+          Clocked In
+        </span>
+      );
     }
+
+    const normalized = String(status).toLowerCase();
+    if (normalized === 'approved') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
+          Approved
+        </span>
+      );
+    }
+
+    if (normalized === 'flagged') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border border-rose-300 dark:border-rose-800">
+          Flagged
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-card dark:bg-neutral-800 text-muted-foreground dark:text-neutral-300 border border-card-border dark:border-neutral-700">
+        Completed
+      </span>
+    );
   };
 
-  const activeCount = entries.filter((e) => e.status === 'active').length;
-  const flaggedCount = entries.filter((e) => e.status === 'flagged').length;
+  const activeCount = entries.filter((e) => !e.clockOut || e.clockOut === 'null' || e.clockOut === '').length;
+  const flaggedCount = entries.filter((e) => String(e.status).toLowerCase() === 'flagged').length;
   const totalTrackedHours = useMemo(() => {
     const totalMs = entries.reduce((acc, entry) => {
       const start = new Date(entry.clockIn).getTime();
@@ -221,14 +246,14 @@ export default function TimesheetsPage() {
             <Clock className="w-5 h-5 text-emerald-500" />
             <span>Time & Attendance</span>
           </h1>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+          <p className="text-xs text-muted-foreground dark:text-neutral-400 mt-0.5">
             GPS mobile clock-in, geofence radius audit, and manager punch approvals.
           </p>
         </div>
 
         <button
           onClick={loadTimesheets}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 dark:border-neutral-800 text-xs font-semibold text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-card-border dark:border-neutral-800 text-xs font-semibold text-muted-foreground dark:text-neutral-300 hover:bg-card dark:hover:bg-neutral-800 transition-colors cursor-pointer"
         >
           <RefreshCw className="w-3.5 h-3.5" />
           <span>Refresh</span>
@@ -242,7 +267,7 @@ export default function TimesheetsPage() {
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span>{errorMessage}</span>
           </div>
-          <button onClick={() => setErrorMessage(null)} className="text-rose-500 hover:text-rose-700 font-semibold">
+          <button onClick={() => setErrorMessage(null)} className="text-rose-500 hover:text-rose-700 font-semibold cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -254,16 +279,16 @@ export default function TimesheetsPage() {
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>{successMessage}</span>
           </div>
-          <button onClick={() => setSuccessMessage(null)} className="text-emerald-500 hover:text-emerald-700 font-semibold">
+          <button onClick={() => setSuccessMessage(null)} className="text-emerald-500 hover:text-emerald-700 font-semibold cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
       )}
 
       {/* Live Punch Clock Widget */}
-      <div className="border border-neutral-200 dark:border-neutral-800 rounded-2xl bg-white dark:bg-neutral-900/50 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div className="border border-card-border dark:border-neutral-800 rounded-2xl bg-white dark:bg-neutral-900/50 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+          <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground dark:text-neutral-400">
             <Navigation className="w-3.5 h-3.5 text-sky-500" />
             <span>GPS Time Clock · {selectedLocation?.name || 'Store Location'}</span>
           </div>
@@ -272,7 +297,7 @@ export default function TimesheetsPage() {
             <div className="text-3xl font-mono font-bold tracking-tight text-neutral-900 dark:text-white">
               {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </div>
-            <div className="text-xs text-neutral-500 font-mono">
+            <div className="text-xs text-muted-foreground font-mono">
               {currentTime.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })}
             </div>
           </div>
@@ -283,7 +308,7 @@ export default function TimesheetsPage() {
               <span>Shift active · Duration: {formatDuration(activeEntry.clockIn)}</span>
             </div>
           ) : (
-            <div className="text-xs text-neutral-500">
+            <div className="text-xs text-muted-foreground">
               You are currently clocked out. Coordinates will verify against the store geofence upon punch.
             </div>
           )}
@@ -295,23 +320,23 @@ export default function TimesheetsPage() {
             placeholder="Optional punch notes (e.g. Covering register)"
             value={notesInput}
             onChange={(e) => setNotesInput(e.target.value)}
-            className="px-3 py-2 text-xs bg-neutral-50 dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-800 rounded-lg text-neutral-900 dark:text-white outline-none sm:w-64"
+            className="px-3 py-2 text-xs bg-card dark:bg-neutral-950 border border-card-border dark:border-neutral-800 rounded-lg text-neutral-900 dark:text-white outline-none sm:w-64"
           />
 
           {activeEntry ? (
             <button
-              onClick={handleClockOut}
+              onClick={() => setShowClockOutConfirm(true)}
               disabled={punching}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm"
+              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm cursor-pointer"
             >
               <Square className="w-4 h-4 fill-white" />
-              <span>{punching ? 'Recording Punch...' : 'Clock Out'}</span>
+              <span>Clock Out</span>
             </button>
           ) : (
             <button
               onClick={handleClockIn}
               disabled={punching}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm"
+              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors shadow-sm cursor-pointer"
             >
               <Play className="w-4 h-4 fill-white" />
               <span>{punching ? 'Verifying GPS...' : 'Clock In'}</span>
@@ -322,20 +347,20 @@ export default function TimesheetsPage() {
 
       {/* Metrics Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
-          <div className="text-[10px] font-mono text-neutral-400 uppercase font-semibold">Active On Duty</div>
+        <div className="p-4 rounded-xl border border-card-border dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
+          <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">Active On Duty</div>
           <div className="text-xl font-bold font-mono text-neutral-900 dark:text-white mt-1">{activeCount}</div>
         </div>
-        <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
-          <div className="text-[10px] font-mono text-neutral-400 uppercase font-semibold">Flagged Punches</div>
+        <div className="p-4 rounded-xl border border-card-border dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
+          <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">Flagged Punches</div>
           <div className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400 mt-1">{flaggedCount}</div>
         </div>
-        <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
-          <div className="text-[10px] font-mono text-neutral-400 uppercase font-semibold">Total Hours</div>
+        <div className="p-4 rounded-xl border border-card-border dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
+          <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">Total Hours</div>
           <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">{totalTrackedHours}h</div>
         </div>
-        <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
-          <div className="text-[10px] font-mono text-neutral-400 uppercase font-semibold">Geofence Radius</div>
+        <div className="p-4 rounded-xl border border-card-border dark:border-neutral-800 bg-white dark:bg-neutral-900/30">
+          <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">Geofence Radius</div>
           <div className="text-xl font-bold font-mono text-neutral-900 dark:text-white mt-1">
             {selectedLocation?.geofenceRadiusMeters ?? 150}m
           </div>
@@ -343,23 +368,22 @@ export default function TimesheetsPage() {
       </div>
 
       {/* Timesheet Audit Ledger */}
-      <div className="border border-neutral-200 dark:border-neutral-800 rounded-2xl bg-white dark:bg-neutral-900/30 overflow-hidden shadow-sm">
-        <div className="p-4 border-b border-neutral-200 dark:border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-neutral-50 dark:bg-neutral-900/60">
-          <div className="text-xs font-bold uppercase font-mono tracking-wider text-neutral-700 dark:text-neutral-300">
+      <div className="border border-card-border dark:border-neutral-800 rounded-2xl bg-white dark:bg-neutral-900/30 overflow-hidden shadow-sm">
+        <div className="p-4 border-b border-card-border dark:border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card dark:bg-neutral-900/60">
+          <div className="text-xs font-bold uppercase font-mono tracking-wider text-muted-foreground dark:text-neutral-300">
             Attendance Records ({entries.length})
           </div>
 
-          {/* Date Window Filters */}
           <div className="flex items-center gap-2 text-xs">
-            <div className="flex items-center gap-1.5 bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-800 px-2.5 py-1 rounded-lg">
-              <Calendar className="w-3.5 h-3.5 text-neutral-400" />
+            <div className="flex items-center gap-1.5 bg-white dark:bg-neutral-950 border border-card-border dark:border-neutral-800 px-2.5 py-1 rounded-lg">
+              <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
               <input
                 type="date"
                 value={dateRange.start}
                 onChange={(e) => setDateRange((prev) => ({ ...prev, start: e.target.value }))}
                 className="bg-transparent text-neutral-800 dark:text-neutral-200 outline-none text-xs font-mono"
               />
-              <span className="text-neutral-400">–</span>
+              <span className="text-muted-foreground">–</span>
               <input
                 type="date"
                 value={dateRange.end}
@@ -371,17 +395,17 @@ export default function TimesheetsPage() {
         </div>
 
         {loading ? (
-          <div className="p-16 text-center text-xs font-mono text-neutral-500">
+          <div className="p-16 text-center text-xs font-mono text-muted-foreground">
             AUDITING TIMESHEET LEDGER...
           </div>
         ) : entries.length === 0 ? (
-          <div className="p-16 text-center text-xs text-neutral-500">
+          <div className="p-16 text-center text-xs text-muted-foreground">
             No attendance punches recorded in this date range.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-neutral-100 dark:bg-neutral-900/80 border-b border-neutral-200 dark:border-neutral-800 text-[10px] font-mono text-neutral-500 uppercase">
+              <thead className="bg-card dark:bg-neutral-900/80 border-b border-card-border dark:border-neutral-800 text-[10px] font-mono text-muted-foreground uppercase">
                 <tr>
                   <th className="px-4 py-3">Employee</th>
                   <th className="px-4 py-3">Clock In</th>
@@ -396,31 +420,32 @@ export default function TimesheetsPage() {
               <tbody className="divide-y divide-neutral-200 dark:divide-neutral-800 font-mono">
                 {entries.map((entry) => {
                   const inTime = new Date(entry.clockIn);
-                  const outTime = entry.clockOut ? new Date(entry.clockOut) : null;
+                  const hasClockedOut = Boolean(entry.clockOut && entry.clockOut !== 'null' && entry.clockOut !== '');
+                  const outTime = hasClockedOut ? new Date(entry.clockOut!) : null;
                   const radius = selectedLocation?.geofenceRadiusMeters ?? 150;
-                  const isOutOfBounds = entry.clockInDistance > radius;
+                  const isOutOfBounds = (entry.clockInDistance ?? 0) > radius;
 
                   return (
-                    <tr key={entry.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-900/20">
+                    <tr key={entry.id} className="hover:bg-card dark:hover:bg-neutral-900/20">
                       <td className="px-4 py-3">
                         <div className="font-sans font-bold text-neutral-900 dark:text-white">
                           {entry.user?.fullName || 'Staff'}
                         </div>
-                        <div className="text-[10px] text-neutral-500 font-sans">{entry.user?.email}</div>
+                        <div className="text-[10px] text-muted-foreground font-sans">{entry.user?.email}</div>
                       </td>
 
-                      <td className="px-4 py-3 text-neutral-700 dark:text-neutral-300">
+                      <td className="px-4 py-3 text-muted-foreground dark:text-neutral-300">
                         <div>{inTime.toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
-                        <div className="text-[10px] text-neutral-500">
+                        <div className="text-[10px] text-muted-foreground">
                           {inTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
                       </td>
 
-                      <td className="px-4 py-3 text-neutral-700 dark:text-neutral-300">
+                      <td className="px-4 py-3 text-muted-foreground dark:text-neutral-300">
                         {outTime ? (
                           <>
                             <div>{outTime.toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
-                            <div className="text-[10px] text-neutral-500">
+                            <div className="text-[10px] text-muted-foreground">
                               {outTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </>
@@ -436,35 +461,37 @@ export default function TimesheetsPage() {
                       <td className="px-4 py-3">
                         <div
                           className={`inline-flex items-center gap-1 text-[11px] ${
-                            isOutOfBounds ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-neutral-500'
+                            isOutOfBounds ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-muted-foreground'
                           }`}
                         >
                           <MapPin className="w-3 h-3 shrink-0" />
-                          <span>{Math.round(entry.clockInDistance)}m from pin</span>
+                          <span>{Math.round(entry.clockInDistance ?? 0)}m from pin</span>
                         </div>
                       </td>
 
                       <td className="px-4 py-3">
                         <span
                           className={
-                            entry.varianceMinutes !== 0
+                            (entry.varianceMinutes ?? 0) !== 0
                               ? 'text-amber-600 dark:text-amber-400 font-semibold'
-                              : 'text-neutral-400'
+                              : 'text-muted-foreground'
                           }
                         >
-                          {entry.varianceMinutes > 0 ? `+${entry.varianceMinutes}m` : `${entry.varianceMinutes}m`}
+                          {(entry.varianceMinutes ?? 0) > 0
+                            ? `+${entry.varianceMinutes}m`
+                            : `${entry.varianceMinutes ?? 0}m`}
                         </span>
                       </td>
 
-                      <td className="px-4 py-3">{renderStatusBadge(entry.status)}</td>
+                      <td className="px-4 py-3">{renderStatusBadge(entry.status, entry.clockOut)}</td>
 
                       {isManagerOrAdmin && (
                         <td className="px-4 py-3 text-right">
-                          {entry.status !== 'approved' && entry.status !== 'active' && (
+                          {entry.status !== 'approved' && hasClockedOut && (
                             <button
                               onClick={() => handleApprove(entry.id)}
                               disabled={approvingId === entry.id}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded text-[10px] font-semibold transition-colors"
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded text-[10px] font-semibold transition-colors cursor-pointer"
                             >
                               {approvingId === entry.id ? 'Approving...' : 'Approve'}
                             </button>
@@ -479,6 +506,66 @@ export default function TimesheetsPage() {
           </div>
         )}
       </div>
+
+      {/* Clock-Out Confirmation Dialog */}
+      {showClockOutConfirm && activeEntry && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-neutral-900 border border-card-border dark:border-neutral-800 rounded-2xl max-w-sm w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-rose-100 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 dark:text-white">Clock Out Confirmation</h3>
+                <p className="text-[11px] text-muted-foreground">Conclude active work shift</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-card dark:bg-neutral-950/60 rounded-xl border border-card-border dark:border-neutral-800 text-xs space-y-1.5 font-mono">
+              <div className="flex justify-between text-muted-foreground">
+                <span>Shift Duration:</span>
+                <span className="font-bold text-neutral-900 dark:text-white">
+                  {formatDuration(activeEntry.clockIn)}
+                </span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Clock In Time:</span>
+                <span>
+                  {new Date(activeEntry.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              {notesInput.trim() && (
+                <div className="pt-1.5 border-t border-card-border dark:border-neutral-800 text-[11px] text-muted-foreground dark:text-neutral-400">
+                  <span className="font-sans font-semibold">Notes:</span> &ldquo;{notesInput}&rdquo;
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground dark:text-neutral-400 leading-relaxed">
+              Are you sure you want to end your shift? Your GPS departure coordinates will be logged and verified against the store geofence.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowClockOutConfirm(false)}
+                disabled={punching}
+                className="px-3.5 py-1.5 text-xs text-muted-foreground hover:text-neutral-800 dark:hover:text-neutral-200 font-medium cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClockOut}
+                disabled={punching}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
+              >
+                {punching ? 'Clocking Out...' : 'Confirm Clock Out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
