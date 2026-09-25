@@ -4,10 +4,11 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useWorkspace } from '@/context/workspace-context';
 import { employeeService } from '@/services/employee.service';
 import { positionService } from '@/services/position.service';
+import { invitationService } from '@/services/invitation.service';
 import {
   UserPlus,
-  Search,
   Mail,
+  Search,
   Phone,
   Briefcase,
   MapPin,
@@ -18,6 +19,9 @@ import {
   Trash2,
   Check,
   X,
+  Copy,
+  Send,
+  Loader2,
 } from 'lucide-react';
 
 interface PositionItem {
@@ -49,10 +53,14 @@ export default function EmployeesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Modal State
-  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
+  // Modal State: 'invite' | 'create' | 'edit' | null
+  const [modalMode, setModalMode] = useState<'invite' | 'create' | 'edit' | null>(null);
   const [activeEmployeeId, setActiveEmployeeId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Invitation Success Dialog State
+  const [generatedInviteLink, setGeneratedInviteLink] = useState<string | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Form State
   const [fullName, setFullName] = useState('');
@@ -118,6 +126,16 @@ export default function EmployeesPage() {
     loadData();
   }, [loadData]);
 
+  const openInviteModal = () => {
+    setEmail('');
+    setRoleName('Employee');
+    setScopeType('location');
+    setScopeId(selectedLocation?.id || user?.locations?.[0]?.id || '');
+    setSelectedPositionIds([]);
+    setErrorMessage(null);
+    setModalMode('invite');
+  };
+
   const openCreateModal = () => {
     setFullName('');
     setEmail('');
@@ -157,13 +175,26 @@ export default function EmployeesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!orgId || !fullName.trim()) return;
+    if (!orgId) return;
 
     try {
       setSubmitting(true);
       setErrorMessage(null);
-
       const resolvedScopeId = scopeType === 'organization' ? orgId : scopeId;
+
+      if (modalMode === 'invite') {
+        const res = await invitationService.createMemberInvite(orgId, {
+          email: email.trim().toLowerCase(),
+          roleName,
+          scopeType,
+          scopeId: resolvedScopeId,
+          positionIds: selectedPositionIds,
+        });
+
+        closeModal();
+        setGeneratedInviteLink(res.inviteLink);
+        return;
+      }
 
       if (modalMode === 'create') {
         await employeeService.onboard(orgId, {
@@ -180,7 +211,7 @@ export default function EmployeesPage() {
         await Promise.all([
           employeeService.updateProfile(orgId, activeEmployeeId, {
             fullName: fullName.trim(),
-            phone: phone.trim() ,
+            phone: phone.trim(),
             roleName,
             scopeType,
             scopeId: resolvedScopeId,
@@ -195,7 +226,7 @@ export default function EmployeesPage() {
       await loadData();
     } catch (err: any) {
       const msg = err.response?.data?.message;
-      setErrorMessage(Array.isArray(msg) ? msg.join(', ') : msg || 'Failed to save employee.');
+      setErrorMessage(Array.isArray(msg) ? msg.join(', ') : msg || 'Action failed.');
     } finally {
       setSubmitting(false);
     }
@@ -220,6 +251,13 @@ export default function EmployeesPage() {
     }
   };
 
+  const copyInviteLink = () => {
+    if (!generatedInviteLink) return;
+    navigator.clipboard.writeText(generatedInviteLink);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
   const filteredEmployees = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return employees;
@@ -238,16 +276,25 @@ export default function EmployeesPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white">Team Directory</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage organization staff, role access boundaries, and qualified duties.
+            Manage organization staff, dispatch invitations, and assign qualified duties.
           </p>
         </div>
-        <button
-          onClick={openCreateModal}
-          className="flex items-center justify-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm shadow-emerald-950"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Onboard Employee</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={openInviteModal}
+            className="flex items-center justify-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors shadow-sm shadow-emerald-950"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>Invite Team Member</span>
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="flex items-center justify-center gap-2 px-3.5 py-2 bg-neutral-800 hover:bg-neutral-750 text-neutral-200 border border-card-border rounded-lg text-xs font-semibold transition-colors"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Direct Add</span>
+          </button>
+        </div>
       </div>
 
       {/* Error Alert */}
@@ -403,40 +450,108 @@ export default function EmployeesPage() {
         </table>
       </div>
 
-      {/* Create / Edit Modal Dialog */}
+      {/* Invite Link Success Modal */}
+      {generatedInviteLink && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-card-border rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <Check className="w-5 h-5" />
+                <h3 className="text-sm font-semibold text-white">Invitation Issued!</h3>
+              </div>
+              <button
+                onClick={() => setGeneratedInviteLink(null)}
+                className="text-muted-foreground hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              An onboarding email has been queued. You can also directly share this activation link with your employee:
+            </p>
+            <div className="flex items-center gap-2 p-2 bg-background border border-card-border rounded-lg">
+              <input
+                type="text"
+                readOnly
+                value={generatedInviteLink}
+                className="flex-1 bg-transparent text-xs text-foreground font-mono outline-none truncate"
+              />
+              <button
+                onClick={copyInviteLink}
+                className="px-2.5 py-1.5 bg-neutral-800 hover:bg-neutral-750 text-white rounded text-xs flex items-center gap-1 transition-colors"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
+            <button
+              onClick={() => setGeneratedInviteLink(null)}
+              className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Modal Dialog (Invite, Create, or Edit) */}
       {modalMode && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-card border border-card-border rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-white">
-                  {modalMode === 'create' ? 'Onboard Team Member' : 'Update Employee Profile'}
+                  {modalMode === 'invite'
+                    ? 'Invite Team Member'
+                    : modalMode === 'create'
+                    ? 'Onboard Team Member'
+                    : 'Update Employee Profile'}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Configure identity, access boundary, and assigned positions.
+                  {modalMode === 'invite'
+                    ? 'Dispatch an email invitation with designated role and permissions.'
+                    : 'Configure identity, access boundary, and assigned positions.'}
                 </p>
               </div>
-              <button onClick={closeModal} className="text-muted-foreground hover:text-muted-foreground">
+              <button onClick={closeModal} className="text-muted-foreground hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">
-                    Full Name <span className="text-rose-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="Alex Mercer"
-                    className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500"
-                  />
+              {/* Full Name & Phone only needed for direct create or edit */}
+              {modalMode !== 'invite' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      Full Name <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="Alex Mercer"
+                      className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">
+                      Phone Number
+                    </label>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+1 (555) 019-2831"
+                      className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
                 </div>
+              )}
 
+              {/* Email & System Role */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">
                     Email Address <span className="text-rose-400">*</span>
@@ -449,21 +564,6 @@ export default function EmployeesPage() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="alex@company.com"
                     className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500 disabled:opacity-50"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">
-                    Phone Number
-                  </label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+1 (555) 019-2831"
-                    className="w-full px-3 py-2 bg-background border border-card-border rounded-lg text-xs text-foreground focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
@@ -587,13 +687,18 @@ export default function EmployeesPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors"
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5"
                 >
-                  {submitting
-                    ? 'Saving...'
-                    : modalMode === 'create'
-                    ? 'Onboard Employee'
-                    : 'Save Changes'}
+                  {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>
+                    {submitting
+                      ? 'Processing...'
+                      : modalMode === 'invite'
+                      ? 'Send Invitation'
+                      : modalMode === 'create'
+                      ? 'Onboard Employee'
+                      : 'Save Changes'}
+                  </span>
                 </button>
               </div>
             </form>
